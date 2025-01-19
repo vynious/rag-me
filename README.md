@@ -8,3 +8,11 @@ Requirements
 2. Embedding model
 3. LLM 
 4. Vector Database
+
+
+
+
+```
+send query to endpoint -> query will be sent to the embedding model to get the vectors -> query the vector db for data near the prompt's vector 
+-> send the data + prompt into the llm -> return the response.
+```

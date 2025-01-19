@@ -1,21 +1,21 @@
-use candle_core::{cuda::cudarc::driver::result::stream::null, Tensor};
+use candle_core::Tensor;
 use anyhow::{Context, Error as E, Result};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, DTYPE, Config};
-use hf_hub::{api::{self, tokio::Api}, Repo};
+use hf_hub::{api::tokio::Api, Repo};
 use tokenizers::{PaddingParams, Tokenizer};
-use lazy_static::lazy_static;
+use tokio::sync::OnceCell;
 
-lazy_static! {
-    pub static ref AI: (BertModel, Tokenizer) = load_model().expect("Unable to load model");
-}
+use crate::utils::device;
 
-pub fn load_model() -> Result<(BertModel, Tokenizer)> {
+static AI: OnceCell<(BertModel, Tokenizer)> = OnceCell::const_new();
+
+pub async fn load_model() -> Result<(BertModel, Tokenizer)> {
     // Initialize the API for Hugging Face Hub and fetch model files
     let api = Api::new()?.repo(Repo::model("sentence-transformers/all-MiniLM-L6-v2".to_string()));
-    let config_filename = api.get("config.json")?;
-    let tokenizer_filename = api.get("tokenizer.json")?;
-    let weights_filename = api.get("pytorch_model.bin")?;
+    let config_filename = api.get("config.json").await?;
+    let tokenizer_filename = api.get("tokenizer.json").await?;
+    let weights_filename = api.get("pytorch_model.bin").await?;
 
     // Load model configuration from the downloaded JSON file
     let config = std::fs::read_to_string(config_filename)?;
@@ -45,8 +45,11 @@ pub fn load_model() -> Result<(BertModel, Tokenizer)> {
 
 
 
-pub fn get_embeddings(sentence: &str) -> Result<Tensor> {
-    let (model, tokenizer) = &*AI;
+pub async fn get_embeddings(sentence: &str) -> Result<Tensor> {
+    let (model, tokenizer) = AI.get_or_try_init(|| async { 
+        load_model().await
+    })
+    .await.expect("Failed to get AI");
 
     // drop any non-ascii characters
     let sentence = sentence
@@ -72,7 +75,7 @@ pub fn get_embeddings(sentence: &str) -> Result<Tensor> {
     let token_type_ids = token_ids
         .zeros_like()
         .context("Unable to get token type ids")?;
-        
+
 
     let embeddings = model
         .forward(&token_ids, &token_type_ids, None)

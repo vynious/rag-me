@@ -1,14 +1,14 @@
 use std::path::PathBuf;
-
 use clap::{Parser, Subcommand};
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser)] // requires `derive` feature
 #[command(name="ragme")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 }
 
+#[derive(Debug, Subcommand)] // requires `derive` feature
 pub enum Commands {
     #[command(arg_required_else_help = true)]
     Ask {
