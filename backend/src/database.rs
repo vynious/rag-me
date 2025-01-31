@@ -1,7 +1,19 @@
-use anyhow::{Context, Ok, Error};
-
+use anyhow::{Context, Error};
+use std::result::Result::Ok;
 use serde::{Deserialize, Serialize};
-use surrealdb::{engine::local::{Db, RocksDb}, sql::{thing, Thing}, Datetime, Surreal, Uuid};
+use surrealdb::{
+    engine::local::{
+        Db, 
+        RocksDb
+    }, 
+    sql::{
+        thing, 
+        Thing
+    }, 
+    Datetime, 
+    Surreal, 
+    Uuid
+};
 use surrealdb::opt::auth::Root;
 use tokio::sync::OnceCell;
 
@@ -57,7 +69,7 @@ pub async fn get_db() -> &'static Surreal<Db> {
         .await
         .expect("Failed to define vector_index table");
 
-        Ok(db)
+        Ok::<Surreal<Db>, Error>(db)
     })
     .await
     .expect("Failed to initialize the database")
@@ -180,10 +192,49 @@ pub async fn insert_into_vdb(
 }
 
 // vector -> key -> content 
-pub async fn process_content() -> anyhow::Result<()> {
+pub async fn process_content(
+    title: &str,
+    text: &str,
+    metadata: serde_json::Value,
+) -> anyhow::Result<Content, Error> {
     // insert into content
+    let content = insert_content(title, text).await?;
 
-    // insert into vector index
-    Ok(())
+    // parse the chunks, split into array of strings and remove empty.
+    let mut chunks = text.split("\n").collect::<Vec<&str>>();
+    chunks.retain(|c| !c.is_empty());
+
+    // recursively split the chunks into smaller chunks if the length is more than 1000.
+    let mut index = 0;
+    while index < chunks.len() {
+        if chunks[index].len() > 1000 {
+            let split_chunks = chunks[index]
+                .split(".")
+                .map(|c| c.trim())
+                .filter(|c| !c.is_empty())
+                .collect::<Vec<&str>>();
+        
+            chunks.remove(index);
+            chunks.splice(index..index, split_chunks);
+        } else {
+            index += 1;
+        }
+    }
+
+    for (i, chunk) in chunks.clone().into_iter().enumerate() {
+        println!("memorizing chunk {}", i);
+        let res = insert_into_vdb(content.id.clone(), i as u16, chunk, metadata.clone()).await;
+        match res {
+            Ok(_) => {}
+            Err(e) => {
+                if e.to_string().contains("content chunk is empty!") {
+                    continue
+                }
+                println!("unable to insert vector index: {}", e)
+            }
+        }
+    }
+
+    Ok(content)
 }
 
