@@ -1,4 +1,5 @@
 use axum::{routing::get, routing::post, Router};
+use bert::get_embeddings;
 use clap::Parser;
 use database::get_db;
 use crate::cli::{Cli, Commands};

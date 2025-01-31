@@ -1,6 +1,11 @@
-use surrealdb::{engine::local::{Db, RocksDb}, Surreal};
+use anyhow::{Context, Ok, Error};
+
+use serde::{Deserialize, Serialize};
+use surrealdb::{engine::local::{Db, RocksDb}, sql::{thing, Thing}, Datetime, Surreal, Uuid};
 use surrealdb::opt::auth::Root;
 use tokio::sync::OnceCell;
+
+use crate::bert::get_embeddings;
 
 static DB: OnceCell<Surreal<Db>> = OnceCell::const_new();
 
@@ -52,8 +57,133 @@ pub async fn get_db() -> &'static Surreal<Db> {
         .await
         .expect("Failed to define vector_index table");
 
-        Ok::<_, surrealdb::Error>(db)
+        Ok(db)
     })
     .await
     .expect("Failed to initialize the database")
 }
+
+#[derive(Serialize, Debug, Clone, Deserialize)]
+pub struct Content {
+    pub id: Thing,
+    pub title: String,
+    pub text: String,
+    pub created_at: Datetime
+}
+
+impl Content {
+    #[allow(dead_code)]
+    pub async fn get_vector_indexes(&self) -> Result<Vec<VectorIndex>, Error> {   
+        let db = get_db().await.clone();
+        let mut result = db
+            .query("SELECT * FROM vector_index WHERE content_id = $content")
+            .bind(("content", self.id.clone()))
+            .await?;
+        let vindexes: Vec<VectorIndex> = result.take(0)?;
+        Ok(vindexes)
+    }
+}
+
+#[derive(Serialize, Debug, Clone, Deserialize)]
+pub struct VectorIndex {
+    pub id: Thing,
+    pub content_id: Thing,
+    pub content_chunk: String,
+    pub chunk_number: u16, 
+    pub vector: Vec<f32>,
+    pub metadata: serde_json::Value,
+    pub created_at: Datetime
+}
+
+impl VectorIndex{
+    #[allow(dead_code)]
+    pub async fn get_content(&self) -> Result<Content,Error> {
+        let db = get_db().await.clone();
+
+        let result: Vec<Content> = db
+            .select(self.content_id.to_string())
+            .await?;
+        
+        let content = result
+            .into_iter()
+            .next()
+            .context("No content found")?;
+        Ok(content)
+    }
+}
+
+pub async fn insert_content(
+    title: &str,
+    text: &str
+) -> anyhow::Result<Content, Error> {
+        
+    let db = get_db().await.clone();
+    let id = Uuid::new_v4().to_string().replace("-", "");
+    let id = thing(format!("content:{}", id).as_str())?;
+    let content = db
+        .create(("content", id.to_string()))
+        .content(Content{
+                id: id.clone(),
+                title: title.to_string(),
+                text: text.to_string(),
+                created_at: Datetime::default()
+        })
+        .await?
+        .context("failed to insert content")?;
+
+    Ok(content)
+}
+
+
+pub async fn insert_into_vdb(
+    content_id: Thing,
+    chunk_number : u16,
+    content_chunk: &str,
+    metadata: serde_json::Value
+) -> anyhow::Result<VectorIndex,Error> {
+
+    let db = get_db().await.clone();
+    let id = Uuid::new_v4().to_string().replace("-", "");
+    let id = thing(format!("vector_index:{}", id).as_str())?;
+    let content_chunk = content_chunk
+        .chars()
+        .filter(|c| c.is_ascii())
+        .collect::<String>();
+
+    let content_chunk = content_chunk.trim();
+
+    if content_chunk.is_empty() {
+        return Err(anyhow::anyhow!("content chunk is empty!"))
+    }
+
+    let vector = get_embeddings(&content_chunk)
+        .await?
+        .reshape((384,))? // apparently 384 is the optimal for vector embeddings? idk.
+        .to_vec1()?;
+
+    let vector_index: VectorIndex = db
+        .create(("vector_index", id.to_string()))
+        .content(VectorIndex {
+            id: id.clone(),
+            content_id,
+            chunk_number,
+            content_chunk: content_chunk.to_string(),
+            metadata,
+            vector,
+            created_at: Datetime::default()
+        })
+        .await?
+        .context("unable to insert vector index")?;
+    
+    Ok(vector_index)
+
+}
+
+// vector -> key -> content 
+pub async fn process_content() -> anyhow::Result<()> {
+    // insert into content
+
+    // insert into vector index
+    Ok(())
+}
+
