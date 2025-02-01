@@ -19,3 +19,4 @@ lazy_static = "1.5.0"
 anyhow = "1.0.95"
 async_once = "0.2.6"
 surrealdb = { version = "2.1.4", features = ["kv-rocksdb"] }
+pdf-extract = "0.8.0"

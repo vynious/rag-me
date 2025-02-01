@@ -1,5 +1,4 @@
 use anyhow::{Context, Error};
-use std::result::Result::Ok;
 use serde::{Deserialize, Serialize};
 use surrealdb::{
     engine::local::{
@@ -122,6 +121,31 @@ impl VectorIndex{
             .context("No content found")?;
         Ok(content)
     }
+
+    #[allow(dead_code)]
+    pub async fn get_adjacent_chunks(
+        &self,
+        upper: u16, 
+        lower: u16,
+    ) -> Result<Vec<VectorIndex>, Error> {
+        let db = get_db().await.clone();
+
+        // guard statement to check underflow
+        let start = if self.chunk_number > lower {
+            self.chunk_number - lower
+        } else{
+            0
+        };
+
+        let mut result = db
+            .query("SELECT * FROM vector_index WHERE content_id = $content AND chunk_number >= $start AND chunk_number <= $end ORDER BY chunk_number ASC")
+            .bind(("content", self.content_id.clone()))
+            .bind(("start", start))
+            .bind(("end", self.chunk_number + upper))
+            .await?;
+        let vector_indexes = result.take(0)?;
+        Ok(vector_indexes)
+    }
 }
 
 pub async fn insert_content(
@@ -238,3 +262,42 @@ pub async fn process_content(
     Ok(content)
 }
 
+// using cosine similarity to find nearby vectors
+pub async fn get_related_chunks(query: Vec<f32>) -> Result<Vec<VectorIndex>, Error> {
+    let db = get_db().await.clone();
+    let mut result = db
+        .query("SELECT *, vector::similarity::cosine(vector, $query) AS score FROM vector_index ORDER BY score DESC LIMIT 4")
+        .bind(("query", query))
+        .await?;
+    let vector_indexes = result.take(0)?;
+    Ok(vector_indexes)
+}
+
+pub async fn get_all_content(start: u16, limit: u16) -> Result<Vec<Content>, Error> {
+    let db = get_db().await.clone();
+    let mut result = db
+        .query("SELECT * FROM content ORDER BY created_at DESC LIMIT $limit START $start")
+        .bind(("start", start))
+        .bind(("limit", limit))
+        .await?;
+    let content: Vec<Content> = result.take(0)?;
+
+    Ok(content)
+}
+
+
+// delete content by id from content and vector index table
+pub async fn delete_content(id: &str) -> Result<(), Error> {
+    let db = get_db().await.clone();
+    let id = thing(format!("content:{}", id).as_str())?;
+    
+    let _ = db.query("DELETE FROM vector_index WHERE content_id = $id")
+        .bind(("id", id.clone()))
+        .await?.check().context("unable to delete content");
+
+    let _ = db.query("DELETE FROM content WHERE id = $id")
+        .bind(("id", id.clone()))
+        .await?.check().context("Unable to delete content")?;
+
+    Ok(())
+}

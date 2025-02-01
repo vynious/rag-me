@@ -22,7 +22,7 @@ async fn main() {
     //     Commands::Forget { content_id, all } => {}
     //     Commands::Upload { path } => {}
     // }
-    
+
     // server routes
     let app: Router = Router::new()
         .route("/api", get(|| async { "hello" }))
