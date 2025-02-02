@@ -3,9 +3,12 @@ use bert::get_embeddings;
 use clap::Parser;
 use cli::{Cli, Commands};
 use database::get_db;
+use handler::ask_question_cli;
+use serde_json::to_vec;
 use tokio::io::{self, AsyncBufReadExt, BufReader, Lines};
+use std::error::Error;
 
-
+mod inference;
 mod handler;
 mod cli;
 mod bert;
@@ -14,15 +17,13 @@ mod ingest;
 mod utils;
 
 #[tokio::main]
-async fn main() {
-
-
+async fn main() -> Result<(), Box<dyn Error>> {
     // server for api 
     let server_task = tokio::spawn(async {
         // server routes
         let app: Router = Router::new()
             .route("/api", get(|| async { "hello" }))
-            .route("/api/ask", post(handler::ask_question));
+            .route("/api/ask", post(handler::ask_question_api));
 
         let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
         axum::serve(listener, app).await.unwrap();
@@ -59,7 +60,18 @@ async fn main() {
                 match cli.command {
                     Commands::Ask { query } => {
                         eprintln!("query = {}", query);
-                    }
+
+                        // process the question
+                        let response = ask_question_cli(&query).await;
+                        match response {
+                            Ok(answer) => {
+                                println!("answer: {}", answer);
+                            }
+                            Err(e) => {
+                                eprintln!("error asking question: {}", e);
+                            }
+                        }
+                    }   
                     Commands::Remember { content } => {
 
                     }
@@ -82,4 +94,6 @@ async fn main() {
     }
 
     let _ = server_task.await;
+
+    Ok(())
 }  

@@ -10,7 +10,7 @@ use crate::utils::device;
 
 static AI: OnceCell<(BertModel, Tokenizer)> = OnceCell::const_new();
 
-pub async fn load_model() -> Result<(BertModel, Tokenizer)> {
+pub async fn load_embedding_model() -> Result<(BertModel, Tokenizer)> {
     // Initialize the API for Hugging Face Hub and fetch model files
     let api = Api::new()?.repo(Repo::model("sentence-transformers/all-MiniLM-L6-v2".to_string()));
     let config_filename = api.get("config.json").await?;
@@ -49,7 +49,7 @@ pub async fn get_embeddings(sentence: &str) -> Result<Tensor> {
     // Initialize or retrieve the AI model and tokenizer.
     // `get_or_try_init` ensures the model and tokenizer are loaded only once and reused.
     let (model, tokenizer) = AI.get_or_try_init(|| async { 
-        load_model().await // Load the model and tokenizer asynchronously
+        load_embedding_model().await // Load the model and tokenizer asynchronously
     })
     .await.expect("Failed to get AI"); // Panic if the model/tokenizer fails to load
 
