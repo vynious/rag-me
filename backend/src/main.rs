@@ -1,12 +1,9 @@
 use axum::{routing::get, routing::post, Router};
-use bert::get_embeddings;
 use clap::Parser;
 use cli::{Cli, Commands};
-use database::get_db;
 use handler::ask_question_cli;
-use serde_json::to_vec;
-use tokio::io::{self, AsyncBufReadExt, BufReader, Lines};
-use std::error::Error;
+use tokio::{io::{self, AsyncBufReadExt, BufReader}, time::timeout};
+use std::{error::Error, fs::Metadata, time::Duration};
 
 mod inference;
 mod handler;
@@ -60,8 +57,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 match cli.command {
                     Commands::Ask { query } => {
                         eprintln!("query = {}", query);
-
-                        // process the question
                         let response = ask_question_cli(&query).await;
                         match response {
                             Ok(answer) => {
@@ -73,16 +68,60 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }   
                     Commands::Remember { content } => {
-
+                        eprintln!("content = {}", content);
                     }
                     Commands::List { start, limit } => {
-
+                    
                     }
                     Commands::Forget { content_id, all } => {
 
                     }
                     Commands::Upload { path } => {
+                        eprintln!("path = {:?}", path);
 
+                        // check file type and call ingest //
+                        // attempt to open file and get metadata with 5s timeout
+                        let result = match timeout(Duration::from_secs(5), tokio::fs::metadata(&path)).await {
+                            Ok(result) => result,
+                            Err(e) => {
+                                eprintln!("Failed to get metadata for path due to: {:?}", e);
+                                continue;
+                            }
+                        };
+                        // guard statement
+                        let metadata = match result {
+                            Ok(metadata) => metadata,
+                            Err(e) => {
+                                eprintln!("Failed to get metadata for path: {:?}", e);
+                                continue;
+                            }
+                            
+                        };
+                        // guard statement
+                        if !metadata.is_file() {
+                            eprintln!("Path is not a file: {:?}", path);
+                            continue;
+                        };
+                        // check file extension
+                        if let Some(extension) = path.extension() {
+                            match extension.to_str() {
+                                Some("txt") => {
+                                    eprintln!("ingesting txt file");
+                                    // Call ingest function for txt files
+                                    ingest::ingest_via_txt(&path).await.unwrap();
+                                }
+                                Some("pdf") => {
+                                    eprintln!("ingesting pdf file");
+                                    // Call ingest function for csv files
+                                    ingest::ingest_via_pdf(&path).await.unwrap();
+                                }
+                                _ => {
+                                    eprintln!("Unsupported file type: {:?}", extension);
+                                }
+                            }
+                        } else {
+                            eprintln!("File has no extension: {:?}", path);
+                        };
                     }
                 }
             }, 

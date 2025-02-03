@@ -1,3 +1,5 @@
+use crate::database::VectorIndex;
+use crate::utils::device;
 use anyhow::Ok;
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device, Tensor};
@@ -8,10 +10,6 @@ use hf_hub::{api::sync::Api, Repo};
 use serde_json::json;
 use tokenizers::Tokenizer;
 use tokio::sync::OnceCell;
-use crate::database::VectorIndex;
-use crate::utils::device;
-
-
 
 static PHI: OnceCell<(QMixFormer, Tokenizer)> = OnceCell::const_new();
 
@@ -24,7 +22,10 @@ pub async fn load_inference_model() -> Result<(QMixFormer, Tokenizer)> {
 
     let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
     let config = Config::v2();
-    let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(&weights_filename, &device(false)?)?;
+    let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(
+        &weights_filename,
+        &device(false)?,
+    )?;
     let model = QMixFormer::new_v2(&config, vb)?;
 
     Ok((model, tokenizer))
@@ -38,7 +39,6 @@ struct TextGeneration {
     repeat_penalty: f32,
     repeat_last_n: usize,
 }
-
 
 impl TextGeneration {
     #[allow(clippy::too_many_arguments)]
@@ -109,24 +109,27 @@ impl TextGeneration {
     }
 }
 
-
-pub async fn answer_question_with_context(query: &str, references: &Vec<VectorIndex>) -> Result<String> {
+pub async fn answer_question_with_context(
+    query: &str,
+    references: &Vec<VectorIndex>,
+) -> Result<String> {
     let mut context = Vec::new();
     for reference in references.clone() {
         context.push(json!({
             "content": reference.content_chunk,
             "metadata": reference.metadata
         }));
-    };
+    }
 
     // todo: create prompt from query and context
     let prompt = "".to_string();
 
-    let (model, tokenizer) = PHI.get_or_try_init(|| async { 
-        load_inference_model().await // Load the model and tokenizer asynchronously
-    })
-    .await.expect("Failed to get Inference model"); // Panic if the model/tokenizer fails to load
-
+    let (model, tokenizer) = PHI
+        .get_or_try_init(|| async {
+            load_inference_model().await // Load the model and tokenizer asynchronously
+        })
+        .await
+        .expect("Failed to get Inference model"); // Panic if the model/tokenizer fails to load
 
     let mut pipeline = TextGeneration::new(
         model.clone(),

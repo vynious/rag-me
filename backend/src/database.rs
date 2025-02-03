@@ -1,19 +1,11 @@
 use anyhow::{Context, Error};
 use serde::{Deserialize, Serialize};
-use surrealdb::{
-    engine::local::{
-        Db, 
-        RocksDb
-    }, 
-    sql::{
-        thing, 
-        Thing
-    }, 
-    Datetime, 
-    Surreal, 
-    Uuid
-};
 use surrealdb::opt::auth::Root;
+use surrealdb::{
+    engine::local::{Db, RocksDb},
+    sql::{thing, Thing},
+    Datetime, Surreal, Uuid,
+};
 use tokio::sync::OnceCell;
 
 use crate::bert::get_embeddings;
@@ -79,12 +71,12 @@ pub struct Content {
     pub id: Thing,
     pub title: String,
     pub text: String,
-    pub created_at: Datetime
+    pub created_at: Datetime,
 }
 
 impl Content {
     #[allow(dead_code)]
-    pub async fn get_vector_indexes(&self) -> Result<Vec<VectorIndex>, Error> {   
+    pub async fn get_vector_indexes(&self) -> Result<Vec<VectorIndex>, Error> {
         let db = get_db().await.clone();
         let mut result = db
             .query("SELECT * FROM vector_index WHERE content_id = $content")
@@ -100,32 +92,27 @@ pub struct VectorIndex {
     pub id: Thing,
     pub content_id: Thing,
     pub content_chunk: String,
-    pub chunk_number: u16, 
+    pub chunk_number: u16,
     pub vector: Vec<f32>,
     pub metadata: serde_json::Value,
-    pub created_at: Datetime
+    pub created_at: Datetime,
 }
 
-impl VectorIndex{
+impl VectorIndex {
     #[allow(dead_code)]
-    pub async fn get_content(&self) -> Result<Content,Error> {
+    pub async fn get_content(&self) -> Result<Content, Error> {
         let db = get_db().await.clone();
 
-        let result: Vec<Content> = db
-            .select(self.content_id.to_string())
-            .await?;
-        
-        let content = result
-            .into_iter()
-            .next()
-            .context("No content found")?;
+        let result: Vec<Content> = db.select(self.content_id.to_string()).await?;
+
+        let content = result.into_iter().next().context("No content found")?;
         Ok(content)
     }
 
     #[allow(dead_code)]
     pub async fn get_adjacent_chunks(
         &self,
-        upper: u16, 
+        upper: u16,
         lower: u16,
     ) -> Result<Vec<VectorIndex>, Error> {
         let db = get_db().await.clone();
@@ -133,7 +120,7 @@ impl VectorIndex{
         // guard statement to check underflow
         let start = if self.chunk_number > lower {
             self.chunk_number - lower
-        } else{
+        } else {
             0
         };
 
@@ -148,21 +135,17 @@ impl VectorIndex{
     }
 }
 
-pub async fn insert_content(
-    title: &str,
-    text: &str
-) -> anyhow::Result<Content, Error> {
-        
+pub async fn insert_content(title: &str, text: &str) -> anyhow::Result<Content, Error> {
     let db = get_db().await.clone();
     let id = Uuid::new_v4().to_string().replace("-", "");
     let id = thing(format!("content:{}", id).as_str())?;
     let content = db
         .create(("content", id.to_string()))
-        .content(Content{
-                id: id.clone(),
-                title: title.to_string(),
-                text: text.to_string(),
-                created_at: Datetime::default()
+        .content(Content {
+            id: id.clone(),
+            title: title.to_string(),
+            text: text.to_string(),
+            created_at: Datetime::default(),
         })
         .await?
         .context("failed to insert content")?;
@@ -170,14 +153,12 @@ pub async fn insert_content(
     Ok(content)
 }
 
-
 pub async fn insert_into_vdb(
     content_id: Thing,
-    chunk_number : u16,
+    chunk_number: u16,
     content_chunk: &str,
-    metadata: serde_json::Value
-) -> anyhow::Result<VectorIndex,Error> {
-
+    metadata: serde_json::Value,
+) -> anyhow::Result<VectorIndex, Error> {
     let db = get_db().await.clone();
     let id = Uuid::new_v4().to_string().replace("-", "");
     let id = thing(format!("vector_index:{}", id).as_str())?;
@@ -189,7 +170,7 @@ pub async fn insert_into_vdb(
     let content_chunk = content_chunk.trim();
 
     if content_chunk.is_empty() {
-        return Err(anyhow::anyhow!("content chunk is empty!"))
+        return Err(anyhow::anyhow!("content chunk is empty!"));
     }
 
     let vector = get_embeddings(&content_chunk)
@@ -206,16 +187,15 @@ pub async fn insert_into_vdb(
             content_chunk: content_chunk.to_string(),
             metadata,
             vector,
-            created_at: Datetime::default()
+            created_at: Datetime::default(),
         })
         .await?
         .context("unable to insert vector index")?;
-    
-    Ok(vector_index)
 
+    Ok(vector_index)
 }
 
-// vector -> key -> content 
+// vector -> key -> content
 pub async fn process_content(
     title: &str,
     text: &str,
@@ -237,7 +217,7 @@ pub async fn process_content(
                 .map(|c| c.trim())
                 .filter(|c| !c.is_empty())
                 .collect::<Vec<&str>>();
-        
+
             chunks.remove(index);
             chunks.splice(index..index, split_chunks);
         } else {
@@ -252,7 +232,7 @@ pub async fn process_content(
             Ok(_) => {}
             Err(e) => {
                 if e.to_string().contains("content chunk is empty!") {
-                    continue
+                    continue;
                 }
                 println!("unable to insert vector index: {}", e)
             }
@@ -285,19 +265,24 @@ pub async fn get_all_content(start: u16, limit: u16) -> Result<Vec<Content>, Err
     Ok(content)
 }
 
-
 // delete content by id from content and vector index table
 pub async fn delete_content(id: &str) -> Result<(), Error> {
     let db = get_db().await.clone();
     let id = thing(format!("content:{}", id).as_str())?;
-    
-    let _ = db.query("DELETE FROM vector_index WHERE content_id = $id")
-        .bind(("id", id.clone()))
-        .await?.check().context("unable to delete content");
 
-    let _ = db.query("DELETE FROM content WHERE id = $id")
+    let _ = db
+        .query("DELETE FROM vector_index WHERE content_id = $id")
         .bind(("id", id.clone()))
-        .await?.check().context("Unable to delete content")?;
+        .await?
+        .check()
+        .context("unable to delete content");
+
+    let _ = db
+        .query("DELETE FROM content WHERE id = $id")
+        .bind(("id", id.clone()))
+        .await?
+        .check()
+        .context("Unable to delete content")?;
 
     Ok(())
 }

@@ -1,7 +1,7 @@
-use candle_core::Tensor;
 use anyhow::{Context, Error as E, Result};
+use candle_core::Tensor;
 use candle_nn::VarBuilder;
-use candle_transformers::models::bert::{BertModel, DTYPE, Config};
+use candle_transformers::models::bert::{BertModel, Config, DTYPE};
 use hf_hub::{api::tokio::Api, Repo};
 use tokenizers::{PaddingParams, Tokenizer};
 use tokio::sync::OnceCell;
@@ -12,7 +12,9 @@ static AI: OnceCell<(BertModel, Tokenizer)> = OnceCell::const_new();
 
 pub async fn load_embedding_model() -> Result<(BertModel, Tokenizer)> {
     // Initialize the API for Hugging Face Hub and fetch model files
-    let api = Api::new()?.repo(Repo::model("sentence-transformers/all-MiniLM-L6-v2".to_string()));
+    let api = Api::new()?.repo(Repo::model(
+        "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+    ));
     let config_filename = api.get("config.json").await?;
     let tokenizer_filename = api.get("tokenizer.json").await?;
     let weights_filename = api.get("pytorch_model.bin").await?;
@@ -43,15 +45,16 @@ pub async fn load_embedding_model() -> Result<(BertModel, Tokenizer)> {
     Ok((model, tokenizer))
 }
 
-
 /// get_embeddings takes in a string and returns the result tensor
 pub async fn get_embeddings(sentence: &str) -> Result<Tensor> {
     // Initialize or retrieve the AI model and tokenizer.
     // `get_or_try_init` ensures the model and tokenizer are loaded only once and reused.
-    let (model, tokenizer) = AI.get_or_try_init(|| async { 
-        load_embedding_model().await // Load the model and tokenizer asynchronously
-    })
-    .await.expect("Failed to get AI"); // Panic if the model/tokenizer fails to load
+    let (model, tokenizer) = AI
+        .get_or_try_init(|| async {
+            load_embedding_model().await // Load the model and tokenizer asynchronously
+        })
+        .await
+        .expect("Failed to get AI"); // Panic if the model/tokenizer fails to load
 
     // Preprocess the input sentence by filtering out non-ASCII characters.
     // This ensures the input is compatible with the tokenizer.

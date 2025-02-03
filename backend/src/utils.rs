@@ -1,7 +1,6 @@
-use candle_core::Device;
-use candle_core::utils::{cuda_is_available, metal_is_available};
 use anyhow::Result;
-
+use candle_core::utils::{cuda_is_available, metal_is_available};
+use candle_core::Device;
 
 // https://github.com/huggingface/candle/blob/main/candle-examples/src/lib.rs
 pub fn device(cpu: bool) -> Result<Device> {

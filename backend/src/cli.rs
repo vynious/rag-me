@@ -1,8 +1,8 @@
-use std::path::PathBuf;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Debug, Parser)] // requires `derive` feature
-#[command(name="ragme")]
+#[command(name = "ragme")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -12,16 +12,16 @@ pub struct Cli {
 pub enum Commands {
     #[command(arg_required_else_help = true)]
     Ask {
-        query: String
+        query: String,
     },
     // for sentences
     Remember {
-        content: String
+        content: String,
     },
     // for files
     Upload {
         // add content type for ingesting data
-        path: PathBuf
+        path: PathBuf,
     },
     Forget {
         // the content to forget
@@ -38,5 +38,5 @@ pub enum Commands {
         // how many items you want to get
         #[arg(short, long, default_value = "10")]
         limit: u16,
-    }
-}  
+    },
+}
