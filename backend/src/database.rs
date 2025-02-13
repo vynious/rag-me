@@ -26,39 +26,9 @@ pub async fn get_db() -> &'static Surreal<Db> {
         .expect("Failed to authenticate");
 
         db.use_ns("rag-me")
-            .use_db("content")
+            .use_db("documents")
             .await
             .expect("Failed to switch to namespace and database");
-
-        db.query(
-            "
-                DEFINE TABLE content SCHEMAFULL;
-                DEFINE FIELD id ON TABLE content TYPE record;
-                DEFINE FIELD title ON TABLE content TYPE string;
-                DEFINE FIELD text ON TABLE content TYPE string;
-                DEFINE FIELD created_at ON TABLE content TYPE datetime DEFAULT time::now();
-                DEFINE INDEX contentIdIndex ON TABLE content COLUMNS id UNIQUE;
-            ",
-        )
-        .await
-        .expect("Failed to define content table");
-
-        db.query(
-            "
-                DEFINE TABLE vector_index SCHEMAFULL;
-                DEFINE FIELD id ON TABLE vector_index TYPE record;
-                DEFINE FIELD content_id ON TABLE vector_index TYPE record<content>;
-                DEFINE FIELD content_chunk ON TABLE vector_index TYPE string;
-                DEFINE FIELD chunk_number ON TABLE vector_index TYPE int;
-                DEFINE FIELD vector ON TABLE vector_index TYPE array<float>;
-                DEFINE FIELD vector.* ON TABLE vector_index TYPE float;
-                DEFINE FIELD metadata ON TABLE vector_index FLEXIBLE TYPE object;
-                DEFINE FIELD created_at ON TABLE vector_index TYPE datetime DEFAULT time::now();
-                DEFINE INDEX vectorIdIndex ON TABLE vector_index COLUMNS id UNIQUE;
-            ",
-        )
-        .await
-        .expect("Failed to define vector_index table");
 
         Ok::<Surreal<Db>, Error>(db)
     })
@@ -135,12 +105,13 @@ impl VectorIndex {
     }
 }
 
-pub async fn insert_content(title: &str, text: &str) -> anyhow::Result<Content, Error> {
+pub async fn insert_content(title: &str, text: &str) -> Result<Content, Error> {
     let db = get_db().await.clone();
     let id = Uuid::new_v4().to_string().replace("-", "");
     let id = thing(format!("content:{}", id).as_str())?;
-    let content = db
-        .create(("content", id.to_string()))
+
+    let content: Content = db
+        .create("content")
         .content(Content {
             id: id.clone(),
             title: title.to_string(),
@@ -148,8 +119,7 @@ pub async fn insert_content(title: &str, text: &str) -> anyhow::Result<Content, 
             created_at: Datetime::default(),
         })
         .await?
-        .context("failed to insert content")?;
-
+        .context("Unable to insert content")?;
     Ok(content)
 }
 
@@ -179,7 +149,7 @@ pub async fn insert_into_vdb(
         .to_vec1()?;
 
     let vector_index: VectorIndex = db
-        .create(("vector_index", id.to_string()))
+        .create("vector_index")
         .content(VectorIndex {
             id: id.clone(),
             content_id,

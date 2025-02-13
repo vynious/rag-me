@@ -1,33 +1,31 @@
 use axum::{routing::get, routing::post, Router};
 use clap::Parser;
-use cli::{Cli, Commands};
-use handler::ask_question_cli;
-use tokio::{io::{self, AsyncBufReadExt, BufReader}, time::timeout};
-use std::{error::Error, fs::Metadata, time::Duration};
+use lib::cli::{Cli, Commands};
+use lib::handler::{ask_question_cli, ask_question_api};
+use std::{error::Error, time::Duration};
+use tokio::{
+    io::{self, AsyncBufReadExt, BufReader},
+    time::timeout,
+};
+use lib::utils::get_current_working_dir;
+use lib::ingest;
 
-mod inference;
-mod handler;
-mod cli;
-mod bert;
-mod database;
-mod ingest;
-mod utils;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // server for api 
+    // server for api
     let server_task = tokio::spawn(async {
         // server routes
         let app: Router = Router::new()
             .route("/api", get(|| async { "hello" }))
-            .route("/api/ask", post(handler::ask_question_api));
+            .route("/api/ask", post(ask_question_api));
 
         let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
         axum::serve(listener, app).await.unwrap();
     });
 
     println!("http server is running!");
-    println!("please enter 'ask', 'forget', 'remember' for cli tools!");
+    println!("please enter 'ask', 'forget', 'remember', 'upload' for cli tools!");
 
     // read from stdin and parse into clap cli commands for actions
     let stdin = io::stdin();
@@ -39,10 +37,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if trimmed_line.is_empty() {
             continue;
         }
-        println!("receiving cmd: {}", trimmed_line);   
-        
+        println!("receiving cmd: {}", trimmed_line);
+
         let args = match shell_words::split(trimmed_line) {
-            Ok(tokens)  => tokens,
+            Ok(tokens) => tokens,
             Err(e) => {
                 eprintln!("error parsing commands: {}", e);
                 continue;
@@ -66,28 +64,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 eprintln!("error asking question: {}", e);
                             }
                         }
-                    }   
+                    }
                     Commands::Remember { content } => {
                         eprintln!("content = {}", content);
                     }
-                    Commands::List { start, limit } => {
-                    
-                    }
-                    Commands::Forget { content_id, all } => {
-
-                    }
+                    Commands::List { start, limit } => {}
+                    Commands::Forget { content_id, all } => {}
                     Commands::Upload { path } => {
                         eprintln!("path = {:?}", path);
+                        // get current working directory
+                        let cwd = get_current_working_dir().unwrap();
+                        // join path with current working directory
+                        let path = cwd.join(path);
 
-                        // check file type and call ingest //
+                        // check file type and call ingest
                         // attempt to open file and get metadata with 5s timeout
-                        let result = match timeout(Duration::from_secs(5), tokio::fs::metadata(&path)).await {
-                            Ok(result) => result,
-                            Err(e) => {
-                                eprintln!("Failed to get metadata for path due to: {:?}", e);
-                                continue;
-                            }
-                        };
+                        let result =
+                            match timeout(Duration::from_secs(5), tokio::fs::metadata(&path)).await
+                            {
+                                Ok(result) => result,
+                                Err(e) => {
+                                    eprintln!("Failed to get metadata for path due to: {:?}", e);
+                                    continue;
+                                }
+                            };
                         // guard statement
                         let metadata = match result {
                             Ok(metadata) => metadata,
@@ -95,7 +95,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 eprintln!("Failed to get metadata for path: {:?}", e);
                                 continue;
                             }
-                            
                         };
                         // guard statement
                         if !metadata.is_file() {
@@ -124,7 +123,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         };
                     }
                 }
-            }, 
+            }
             // need to exclude '--help' as it falls into this condition
             Err(e) => {
                 eprintln!("error parsing commands: {}", e);
@@ -135,4 +134,4 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _ = server_task.await;
 
     Ok(())
-}  
+}
