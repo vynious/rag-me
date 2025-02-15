@@ -3,7 +3,7 @@ use axum::{http::StatusCode, Json};
 
 use crate::{
     bert::get_embeddings,
-    database::{get_related_chunks, Content, VectorIndex},
+    database::{get_related_chunks, VectorIndex},
     inference::answer_question_with_context,
 };
 

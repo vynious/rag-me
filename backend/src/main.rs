@@ -1,6 +1,7 @@
 use axum::{routing::get, routing::post, Router};
 use clap::Parser;
 use lib::cli::{Cli, Commands};
+use lib::database::get_all_content;
 use lib::handler::{ask_question_cli, ask_question_api};
 use std::{error::Error, time::Duration};
 use tokio::{
@@ -68,7 +69,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     Commands::Remember { content } => {
                         eprintln!("content = {}", content);
                     }
-                    Commands::List { start, limit } => {}
+                    Commands::List { start, limit } => {
+                        if let Ok(content) = get_all_content(start, limit).await {
+                            for c in content {
+                                println!("content: {:?}", c);
+                            }
+                        }
+                    }
                     Commands::Forget { content_id, all } => {}
                     Commands::Upload { path } => {
                         eprintln!("path = {:?}", path);
