@@ -65,6 +65,7 @@ impl TextGeneration {
 
     fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String> {
         let tokens = self.tokenizer.encode(prompt, true).map_err(E::msg)?;
+        println!("Encoded tokens: {:?}", tokens.get_ids());
         if tokens.is_empty() {
             anyhow::bail!("Empty prompts are not supported in the phi model.")
         }
@@ -96,15 +97,18 @@ impl TextGeneration {
             };
 
             let next_token = self.logits_processor.sample(&logits)?;
+            println!("Generated token: {}", next_token);
             tokens.push(next_token);
             generated_tokens += 1;
             if next_token == eos_token || next_token == 198 {
+                println!("EOS token generated, stopping generation");
                 break;
             }
             let token = self.tokenizer.decode(&[next_token], true).map_err(E::msg)?;
             response += &token;
         }
         let dt = start_gen.elapsed();
+        println!("Final response: {}", response);
         Ok(response.trim().to_string())
     }
 }
@@ -129,14 +133,15 @@ pub async fn answer_question_with_context(
         })
         .await
         .expect("Failed to get Inference model"); // Panic if the model/tokenizer fails to load
-
+    
+    
 
     let mut pipeline = TextGeneration::new(
         model.clone(),
         tokenizer.clone(),
         398752958,
-        Some(0.3),
-        None,
+        Some(0.8),
+        Some(0.7),
         1.1,
         64,
         &device(false)?,
