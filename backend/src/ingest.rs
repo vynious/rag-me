@@ -1,5 +1,5 @@
 use crate::database::process_content;
-use anyhow::{anyhow, Context, Ok};
+use anyhow::{Context, Ok};
 use serde_json::json;
 use std::{
     fs::File,

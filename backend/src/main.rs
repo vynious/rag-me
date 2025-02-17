@@ -55,8 +55,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Ok(cli) => {
                 match cli.command {
                     Commands::Ask { query } => {
-                        eprintln!("query = {}", query);
-                        let response = ask_question_cli(&query).await;
+                        let query_str = query.join(" "); // Join words into a single query string
+                        eprintln!("query = {}", query_str);
+                        let response = ask_question_cli(&query_str).await;
                         match response {
                             Ok(answer) => {
                                 println!("answer: {}", answer);

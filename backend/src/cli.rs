@@ -12,7 +12,7 @@ pub struct Cli {
 pub enum Commands {
     #[command(arg_required_else_help = true)]
     Ask {
-        query: String,
+        query: Vec<String>,
     },
     // for sentences
     Remember {
