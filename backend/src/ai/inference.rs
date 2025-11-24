@@ -1,6 +1,5 @@
-use crate::database::VectorIndex;
+use crate::data::database::VectorIndex;
 use crate::utils::device;
-use anyhow::Ok;
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device, Tensor};
 use candle_transformers::generation::LogitsProcessor;
@@ -70,7 +69,7 @@ impl TextGeneration {
             anyhow::bail!("Empty prompts are not supported in the phi model.")
         }
         let mut tokens = tokens.get_ids().to_vec();
-        let mut generated_tokens = 0usize; 
+        let mut generated_tokens = 0usize;
         let eos_token = match self.tokenizer.get_vocab(true).get("<|endoftext|>") {
             Some(token) => *token,
             None => anyhow::bail!("cannot find the endoftext token"),
@@ -126,15 +125,16 @@ pub async fn answer_question_with_context(
     }
 
     let context_str = serde_json::to_string(&context)?;
-    let prompt = format!("You are a friendly AI agent. Context: {} Query: {}", context_str, query);
+    let prompt = format!(
+        "You are a friendly AI agent. Context: {} Query: {}",
+        context_str, query
+    );
     let (model, tokenizer) = PHI
         .get_or_try_init(|| async {
             load_inference_model().await // Load the model and tokenizer asynchronously
         })
         .await
         .expect("Failed to get Inference model"); // Panic if the model/tokenizer fails to load
-    
-    
 
     let mut pipeline = TextGeneration::new(
         model.clone(),

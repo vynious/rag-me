@@ -1,7 +1,6 @@
-pub mod bert;
+pub mod ai;
 pub mod cli;
-pub mod database;
-pub mod handler;
-pub mod inference;
-pub mod ingest;
+pub mod data;
+pub mod http;
+pub mod qa;
 pub mod utils;
