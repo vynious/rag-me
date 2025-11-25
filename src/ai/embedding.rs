@@ -7,11 +7,11 @@ use tokenizers::{PaddingParams, Tokenizer};
 
 use crate::utils::device;
 
-trait EmbeddingEngine {
+pub trait EmbeddingEngine {
     fn get_embeddings(&self, sentence: &str) -> Result<Tensor>;
 }
 
-struct Embedder {
+pub struct Embedder {
     model: BertModel,
     tokenizer: Tokenizer,
 }
@@ -117,7 +117,7 @@ impl EmbeddingEngine for Embedder {
 }
 
 impl Embedder {
-    pub async fn new(&self, name: &str) -> Result<Self> {
+    pub async fn new(name: &str) -> Result<Self> {
         let (model, tokenizer) = load_embedding_model(name).await?;
         Ok(Self { model, tokenizer })
     }

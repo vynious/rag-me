@@ -15,7 +15,7 @@ pub trait InferenceEngine {
     fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String>;
 }
 
-struct TextGeneration {
+pub struct TextGeneration {
     name: String,
     model: QMixFormer,
     device: Arc<Device>,
@@ -42,7 +42,7 @@ async fn load_inference_model(name: &str) -> Result<(QMixFormer, Tokenizer)> {
 
 impl TextGeneration {
     #[allow(clippy::too_many_arguments)]
-    async fn new(
+    pub async fn new(
         name: &str,
         seed: u64,
         temp: Option<f64>,
