@@ -21,6 +21,7 @@ async_once = "0.2.6"
 surrealdb = { version = "2.1.4", features = ["kv-rocksdb"] }
 pdf-extract = "0.8.0"
 shell-words = "1.1.0"
+async-trait = "0.1.89"
 
 [lib]
 name = "lib"

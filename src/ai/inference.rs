@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::data::database::VectorIndex;
 use crate::utils::device;
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device, Tensor};
@@ -8,7 +7,6 @@ use candle_transformers::generation::LogitsProcessor;
 use candle_transformers::models::quantized_mixformer::Config;
 use candle_transformers::models::quantized_mixformer::MixFormerSequentialForCausalLM as QMixFormer;
 use hf_hub::{api::sync::Api, Repo};
-use serde_json::json;
 use tokenizers::Tokenizer;
 
 pub trait InferenceEngine {
