@@ -25,10 +25,8 @@ struct TextGeneration {
     repeat_last_n: usize,
 }
 
-async fn load_inference_model() -> Result<(QMixFormer, Tokenizer)> {
-    let api = Api::new()?.repo(Repo::model(
-        "Demonthos/dolphin-2_6-phi-2-candle".to_string(),
-    ));
+async fn load_inference_model(name: &str) -> Result<(QMixFormer, Tokenizer)> {
+    let api = Api::new()?.repo(Repo::model(name.to_string()));
     let tokenizer_filename = api.get("tokenizer.json")?;
     let weights_filename = api.get("model-q4k.gguf")?;
 
@@ -45,7 +43,7 @@ async fn load_inference_model() -> Result<(QMixFormer, Tokenizer)> {
 impl TextGeneration {
     #[allow(clippy::too_many_arguments)]
     async fn new(
-        name: String,
+        name: &str,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
@@ -54,17 +52,17 @@ impl TextGeneration {
         device: Arc<Device>,
     ) -> Result<Self> {
         let logits_processor = LogitsProcessor::new(seed, temp, top_p);
-        let (model, tokenizer) = load_inference_model()
+        let (model, tokenizer) = load_inference_model(name)
             .await
             .expect("Failed to load inference model");
         Ok(Self {
-            name,
+            name: name.to_string(),
             model,
             tokenizer,
             logits_processor,
             repeat_penalty,
             repeat_last_n,
-            device: device,
+            device,
         })
     }
 }
@@ -141,7 +139,7 @@ pub async fn answer_question_with_context(
     let device = device(false)?;
     // Remove hardcoded AI name
     let mut pipeline = TextGeneration::new(
-        "Demonthos/dolphin-2_6-phi-2-candle".to_string(),
+        "Demonthos/dolphin-2_6-phi-2-candle",
         398752958,
         Some(0.8),
         Some(0.7),
