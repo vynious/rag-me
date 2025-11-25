@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use crate::data::database::VectorIndex;
 use crate::utils::device;
-use anyhow::bail;
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device, Tensor};
 use candle_transformers::generation::LogitsProcessor;
@@ -9,7 +10,6 @@ use candle_transformers::models::quantized_mixformer::MixFormerSequentialForCaus
 use hf_hub::{api::sync::Api, Repo};
 use serde_json::json;
 use tokenizers::Tokenizer;
-use tokio::sync::OnceCell;
 
 pub trait InferenceEngine {
     fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String>;
@@ -18,7 +18,7 @@ pub trait InferenceEngine {
 struct TextGeneration {
     name: String,
     model: QMixFormer,
-    device: Device,
+    device: Arc<Device>,
     tokenizer: Tokenizer,
     logits_processor: LogitsProcessor,
     repeat_penalty: f32,
@@ -51,7 +51,7 @@ impl TextGeneration {
         top_p: Option<f64>,
         repeat_penalty: f32,
         repeat_last_n: usize,
-        device: &Device,
+        device: Arc<Device>,
     ) -> Result<Self> {
         let logits_processor = LogitsProcessor::new(seed, temp, top_p);
         let (model, tokenizer) = load_inference_model()
@@ -64,7 +64,7 @@ impl TextGeneration {
             logits_processor,
             repeat_penalty,
             repeat_last_n,
-            device: device.clone(),
+            device: device,
         })
     }
 }
@@ -138,6 +138,7 @@ pub async fn answer_question_with_context(
         context_str, query
     );
 
+    let device = device(false)?;
     // Remove hardcoded AI name
     let mut pipeline = TextGeneration::new(
         "Demonthos/dolphin-2_6-phi-2-candle".to_string(),
@@ -146,7 +147,7 @@ pub async fn answer_question_with_context(
         Some(0.7),
         1.1,
         64,
-        &device(false)?,
+        Arc::new(device),
     )
     .await?;
 
