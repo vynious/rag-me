@@ -8,7 +8,7 @@ use surrealdb::{
 };
 use tokio::sync::OnceCell;
 
-use crate::ai::bert::get_embeddings;
+use crate::ai::embedding::get_embeddings;
 
 static DB: OnceCell<Surreal<Db>> = OnceCell::const_new();
 

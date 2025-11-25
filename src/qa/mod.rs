@@ -1,7 +1,7 @@
 use anyhow::Error;
 
 use crate::{
-    ai::bert::get_embeddings,
+    ai::embedding::get_embeddings,
     ai::inference::answer_question_with_context,
     data::database::{get_related_chunks, VectorIndex},
 };

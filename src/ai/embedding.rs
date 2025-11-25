@@ -8,6 +8,10 @@ use tokio::sync::OnceCell;
 
 use crate::utils::device;
 
+trait EmbeddingEngine {
+    
+}
+
 static AI: OnceCell<(BertModel, Tokenizer)> = OnceCell::const_new();
 
 pub async fn load_embedding_model() -> Result<(BertModel, Tokenizer)> {

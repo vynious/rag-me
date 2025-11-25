@@ -1,5 +1,6 @@
 use crate::data::database::VectorIndex;
 use crate::utils::device;
+use anyhow::bail;
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device, Tensor};
 use candle_transformers::generation::LogitsProcessor;
@@ -10,9 +11,21 @@ use serde_json::json;
 use tokenizers::Tokenizer;
 use tokio::sync::OnceCell;
 
-static PHI: OnceCell<(QMixFormer, Tokenizer)> = OnceCell::const_new();
+pub trait InferenceEngine {
+    fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String>;
+}
 
-pub async fn load_inference_model() -> Result<(QMixFormer, Tokenizer)> {
+struct TextGeneration {
+    name: String,
+    model: QMixFormer,
+    device: Device,
+    tokenizer: Tokenizer,
+    logits_processor: LogitsProcessor,
+    repeat_penalty: f32,
+    repeat_last_n: usize,
+}
+
+async fn load_inference_model() -> Result<(QMixFormer, Tokenizer)> {
     let api = Api::new()?.repo(Repo::model(
         "Demonthos/dolphin-2_6-phi-2-candle".to_string(),
     ));
@@ -26,42 +39,37 @@ pub async fn load_inference_model() -> Result<(QMixFormer, Tokenizer)> {
         &device(false)?,
     )?;
     let model = QMixFormer::new_v2(&config, vb)?;
-
     Ok((model, tokenizer))
-}
-
-struct TextGeneration {
-    model: QMixFormer,
-    device: Device,
-    tokenizer: Tokenizer,
-    logits_processor: LogitsProcessor,
-    repeat_penalty: f32,
-    repeat_last_n: usize,
 }
 
 impl TextGeneration {
     #[allow(clippy::too_many_arguments)]
-    fn new(
-        model: QMixFormer,
-        tokenizer: Tokenizer,
+    async fn new(
+        name: String,
         seed: u64,
         temp: Option<f64>,
         top_p: Option<f64>,
         repeat_penalty: f32,
         repeat_last_n: usize,
         device: &Device,
-    ) -> Self {
+    ) -> Result<Self> {
         let logits_processor = LogitsProcessor::new(seed, temp, top_p);
-        Self {
+        let (model, tokenizer) = load_inference_model()
+            .await
+            .expect("Failed to load inference model");
+        Ok(Self {
+            name,
             model,
             tokenizer,
             logits_processor,
             repeat_penalty,
             repeat_last_n,
             device: device.clone(),
-        }
+        })
     }
+}
 
+impl InferenceEngine for TextGeneration {
     fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String> {
         let tokens = self.tokenizer.encode(prompt, true).map_err(E::msg)?;
         println!("Encoded tokens: {:?}", tokens.get_ids());
@@ -129,23 +137,19 @@ pub async fn answer_question_with_context(
         "You are a friendly AI agent. Context: {} Query: {}",
         context_str, query
     );
-    let (model, tokenizer) = PHI
-        .get_or_try_init(|| async {
-            load_inference_model().await // Load the model and tokenizer asynchronously
-        })
-        .await
-        .expect("Failed to get Inference model"); // Panic if the model/tokenizer fails to load
 
+    // Remove hardcoded AI name
     let mut pipeline = TextGeneration::new(
-        model.clone(),
-        tokenizer.clone(),
+        "Demonthos/dolphin-2_6-phi-2-candle".to_string(),
         398752958,
         Some(0.8),
         Some(0.7),
         1.1,
         64,
         &device(false)?,
-    );
+    )
+    .await?;
+
     let response = pipeline.run(&prompt, 400).map_err(|e| {
         eprintln!("error generating response: {}", e);
         e

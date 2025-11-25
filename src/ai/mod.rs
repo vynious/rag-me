@@ -1,2 +1,2 @@
-pub mod bert;
+pub mod embedding;
 pub mod inference;

@@ -1,0 +1,7 @@
+
+
+/// Should store
+struct SessionKey {
+    
+}
+
