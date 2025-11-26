@@ -13,7 +13,7 @@ struct InferenceJob {
     reply_tx: oneshot::Sender<InferenceResult>,
 }
 
-struct InferenceResult(String);
+pub struct InferenceResult(String);
 
 pub struct Worker {
     id: usize,
