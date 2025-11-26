@@ -1,29 +1,34 @@
 pub mod embedding;
 pub mod inference;
+pub mod worker_pool;
 
-use anyhow::{Ok, Result};
-pub use embedding::EmbeddingEngine;
+use anyhow::Result;
 use serde_json::json;
+use std::sync::Arc;
 
 use crate::{ai::inference::InferenceEngine, data::database::VectorIndex};
+pub use embedding::EmbeddingEngine;
 
-pub struct AI<E: EmbeddingEngine, I: InferenceEngine> {
-    pub embedder: E,
-    pub inferrer: I,
+pub struct AI {
+    pub embedder: Arc<dyn EmbeddingEngine + Send + Sync>,
+    pub inferrer: Arc<dyn InferenceEngine + Send + Sync>,
 }
 
-impl<E: EmbeddingEngine, I: InferenceEngine> AI<E, I> {
-    pub async fn new(embedder: E, inferrer: I) -> Result<Self> {
-        Ok(AI { embedder, inferrer })
+impl AI {
+    pub fn new(
+        embedder: Arc<dyn EmbeddingEngine + Send + Sync>,
+        inferrer: Arc<dyn InferenceEngine + Send + Sync>,
+    ) -> Self {
+        AI { embedder, inferrer }
     }
 
-    pub async fn answer_question_with_context(
-        &mut self,
+    pub fn answer_question_with_context(
+        &self,
         query: &str,
-        references: &Vec<VectorIndex>,
+        references: &[VectorIndex],
     ) -> Result<String> {
         let mut context = Vec::new();
-        for reference in references.clone() {
+        for reference in references {
             context.push(json!({
                 "content": reference.content_chunk,
                 "metadata": reference.metadata
@@ -35,10 +40,7 @@ impl<E: EmbeddingEngine, I: InferenceEngine> AI<E, I> {
             "You are a friendly AI agent. Context: {} Query: {}",
             context_str, query
         );
-        let response = self.inferrer.run(&prompt, 400).map_err(|e| {
-            eprintln!("error generating response: {}", e);
-            e
-        })?;
-        Ok(response)
+
+        self.inferrer.run(&prompt, 400)
     }
 }
