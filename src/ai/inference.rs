@@ -9,8 +9,6 @@ use candle_transformers::models::quantized_mixformer::MixFormerSequentialForCaus
 use hf_hub::{api::sync::Api, Repo};
 use tokenizers::Tokenizer;
 
-/// TODO: Create Worker Pool ~
-
 pub trait InferenceEngine {
     fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String>;
 }

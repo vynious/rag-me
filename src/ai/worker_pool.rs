@@ -1,39 +1,54 @@
+use candle_core::Device;
 use std::sync::Arc;
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::spawn_blocking,
+};
 
-use tokio::sync::{mpsc, Mutex};
-
-use crate::ai::inference::InferenceEngine;
+use crate::ai::inference::{InferenceEngine, TextGeneration};
 
 struct InferenceJob {
     prompt: String,
     sample_len: usize,
+    reply_tx: oneshot::Sender<InferenceResult>,
 }
 
 struct InferenceResult(String);
 
 pub struct Worker {
     id: usize,
-    inference_engine: Box<dyn InferenceEngine + Send + Sync>,
-    shared_rx: Arc<Mutex<mpsc::Receiver<InferenceJob>>>,
-    result_tx: mpsc::Sender<InferenceResult>,
+    inference_engine: Box<dyn InferenceEngine + Send + 'static>,
+    rx: mpsc::Receiver<InferenceJob>,
 }
 
 pub struct WorkerPool {
-    job_tx: mpsc::Sender<InferenceJob>,
-    result_rx: Arc<Mutex<mpsc::Receiver<InferenceResult>>>,
+    workers: Vec<mpsc::Sender<InferenceJob>>,
+    next: usize,
 }
 
 impl Worker {
-    pub async fn run(mut self) {
-        loop {
-            let job_opt = {
-                let mut rx = self.shared_rx.lock().await;
-                rx.recv().await
-            };
+    pub fn new(
+        id: usize,
+        buffer: usize,
+        inference_engine: Box<dyn InferenceEngine + Send + 'static>,
+    ) -> (Self, mpsc::Sender<InferenceJob>) {
+        let (tx, rx) = mpsc::channel(buffer);
+        (
+            Self {
+                id,
+                inference_engine,
+                rx,
+            },
+            tx,
+        )
+    }
 
-            let job = match job_opt {
+    pub fn run(mut self) {
+        loop {
+            // receive from queue
+            let job = match self.rx.blocking_recv() {
                 Some(job) => job,
-                None => break,
+                None => continue,
             };
 
             let result = self.inference_engine.run(&job.prompt, job.sample_len);
@@ -41,12 +56,53 @@ impl Worker {
                 Ok(result) => result,
                 Err(e) => format!("id: {}, inference error: {}", self.id, e),
             };
-            if let Err(e) = self.result_tx.send(InferenceResult(inference_result)).await {
-                eprintln!(
-                    "Worker {} received an error while sending inference result, error: {}",
-                    self.id, e
-                );
-            }
+            // send back to oneshot channel
+            let _ = job.reply_tx.send(InferenceResult(inference_result));
         }
+    }
+}
+
+impl WorkerPool {
+    pub async fn new(
+        size: usize,
+        buffer: usize,
+        device: Arc<Device>,
+        name: &str,
+    ) -> anyhow::Result<Self> {
+        let mut workers: Vec<mpsc::Sender<InferenceJob>> = Vec::with_capacity(size);
+        for i in 0..size {
+            let inference_service = TextGeneration::new(
+                name,
+                398752958,
+                Some(0.8),
+                Some(0.7),
+                1.1,
+                64,
+                device.clone(),
+            )
+            .await?;
+            let (worker, tx) = Worker::new(i, buffer, Box::new(inference_service));
+            spawn_blocking(move || worker.run());
+            workers.push(tx);
+        }
+        Ok(Self { workers, next: 0 })
+    }
+
+    pub async fn accept(
+        &mut self,
+        prompt: String,
+        sample_len: usize,
+    ) -> anyhow::Result<InferenceResult> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let job = InferenceJob {
+            prompt,
+            sample_len,
+            reply_tx,
+        };
+        let idx = self.next % self.workers.len();
+        self.next = self.next.wrapping_add(1);
+        self.workers[idx].send(job).await?;
+        let result = reply_rx.await?;
+        Ok(result)
     }
 }
