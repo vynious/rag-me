@@ -1,62 +1,50 @@
 # rag-me
 
-Business goal: a self-hosted RAG copilot for engineering teams—answer codebase and docs questions quickly, keep sensitive material on-device, and shorten ramp-up/maintenance cycles without SaaS dependencies.
+Local-first RAG sandbox aimed at answering code/docs questions from your own repos without shipping data to SaaS LLMs. Today it wires Candle for embeddings + inference, SurrealDB for vector storage, and a CLI/HTTP shell around it. Routing and engine-swaps are in progress.
 
-Local-first RAG base: embed sources, store in a vector DB, retrieve top-k, and generate answers with a local model. Candle provides embeddings + inference today; the design keeps engines swappable (Candle ↔ Ollama ↔ vLLM) once the routing layer lands.
+## What’s here
+- **Inference**: phi-2 (MixFormer quantized) via Candle, see `src/ai/inference.rs`.
+- **Embeddings**: BERT-based embedder via Candle, see `src/ai/embedding.rs`.
+- **Vector store**: SurrealDB (RocksDB local) storing content + vectors, see `src/data/database.rs`.
+- **CLI REPL**: `run_repl` handles basic commands (`ask`, `upload`, etc.), see `src/cli/runner.rs`.
+- **HTTP skeleton**: Axum router started in `main.rs` / `src/http`.
 
-## Architecture
+## Architecture (target)
 ```
-User (CLI / API)
-    |
-rag-me core (commands, sessions)
-    |
-KV-aware Router (session reuse, KV budget, eviction)
-    |
-Engine trait  ──>  CandleEngine (phi-2 quantized)   [future: Ollama, vLLM]
-    |
-Vector DB (embeddings + metadata)  +  Corpora (code/docs)
+CLI / HTTP
+   |
+rag-me core (commands + sessions)
+   |
+Router (session -> engine affinity, KV budgeting)   [planned]
+   |
+Engine trait -> CandleEngine (today)                [future: Ollama / vLLM drop-in]
+   |
+Vector DB (Surreal) + Corpus chunking (code/docs)
 ```
 
-### Component Roles
-- **CLI**: chat REPL (`rag-me chat <corpus>`) plus in-REPL commands (`/session`).
-- **Core**: parses commands, tracks sessions, hands chat to the router.
-- **Router**: allocates session handles, tracks estimated KV bytes, evicts when over budget, logs events.
-- **Engine trait**: unified interface for chat + session lifecycle; upper layers stay agnostic to Candle specifics.
-- **CandleEngine**: current implementation; phi-2 quantized via Candle for embedding + generation.
-- **Vector store**: chunked corpus docs with top-k retrieval for prompts.
+## Project status
+- Core pieces compile in isolation; wiring still WIP (several modules need re-exports and routing between embedder, VDB, and inference).
+- Router/KV modeling and engine-swapping are not implemented yet.
+- CLI commands are basic; chat REPL shape exists but will evolve with Router/Session logic.
 
-### Status
-- Candle/phi-2 quantized inference experiment in `src/ai/inference.rs`.
-- Vector embedding + retrieval plumbing exists; CLI + HTTP entrypoints are being shaped with the chat REPL as first-class.
-- Engine trait + Router are the next major pieces to land.
+## Setup
+- Rust 2021 toolchain.
+- Disk space for phi-2 quantized weights via `hf-hub`.
+- Local SurrealDB RocksDB file (`ragme.db`) is created on first use.
+- Corpora live on disk; ingestion currently supports simple txt/pdf via CLI.
 
-### Roadmap
-1) **Phase 1 – CLI chat (Candle-backed)**  
-   Add `Corpus`, `Session`, `Engine` + `CandleEngine`, and REPL commands: `rag-me chat <corpus>`, `/session new <name>`, `/session list`.
-2) **Phase 2 – Repo RAG**  
-   Index code/docs (chunk ~200–300 lines), embed, store in vector DB; retrieve top-k per question and inject as `[context]`.
-3) **Phase 3 – Router**  
-   Track `SessionKey`/`SessionState`, enforce KV budgets, log create/reuse/eviction even without real KV exposure in Candle.
-4) **Phase 4 – Engine swaps**  
-   Keep the trait stable so Ollama/vLLM can drop in with minimal surface-area changes.
-
-## Getting Started
-### Prereqs
-- Rust toolchain (2021 edition; `cargo check` should pass).
-- Disk space for model download via `hf-hub` (phi-2 quantized).
-- Local corpus available on disk; local vector DB file (`ragme.db`).
-
-### Build / Run
+Build:
 ```bash
 cargo check
-cargo run -- chat <corpus>   # REPL entrypoint (in progress)
 ```
 
-## Usage (target)
-- `rag-me chat <corpus>` → session bound to the chosen corpus.
-- In-REPL commands: `/session new <name>`, `/session list`.
+Run (current shape):
+```bash
+cargo run
+```
 
-## Implementation Notes
-- Keep the Engine trait thin so engine swaps are mechanical.
-- Chunk code around 200–300 lines and include path metadata in prompts for traceability.
-- Router KV math is estimated but mirrors vLLM-style handle semantics for future engines.
+## Checklist
+- [ ] Fix wiring: clean exports, inject embedder/inference into VDB and CLI, and ensure REPL uses the vector store + inference path.
+- [ ] Add `Corpus`/`Session` plumbing and a thin Router with session→engine affinity.
+- [ ] Implement repo indexing (chunk ~200–300 lines) and retrieval-backed prompts.
+- [ ] Generalize the Engine trait for swapping Candle ↔ Ollama/vLLM once routing is stable.
