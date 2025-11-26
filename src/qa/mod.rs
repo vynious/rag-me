@@ -1,10 +1,14 @@
+use std::sync::Arc;
+
 use anyhow::Error;
 
 use crate::{
-    ai::embedding::get_embeddings,
-    ai::inference::answer_question_with_context,
-    data::database::{get_related_chunks, VectorIndex},
+    ai::AI,
+    data::database::{VectorIndex, VDB},
 };
+
+
+pub struct 
 
 pub async fn answer_query(query: &str) -> Result<String, Error> {
     let context = build_context_for_query(query).await?;
@@ -12,12 +16,22 @@ pub async fn answer_query(query: &str) -> Result<String, Error> {
     Ok(answer)
 }
 
-pub async fn build_context_for_query(query: &str) -> Result<Vec<VectorIndex>, Error> {
-    let query_embedding: Vec<f32> = get_embeddings(query).await?.reshape((384,))?.to_vec1()?;
-    let related_content = get_related_chunks(query_embedding).await?;
+pub async fn build_context_for_query(
+    ai: Arc<AI>,
+    vdb: Arc<VDB>,
+    query: &str,
+) -> Result<Vec<VectorIndex>, Error> {
+    let query_embedding: Vec<f32> = ai
+        .embedder
+        .get_embeddings(query)?
+        .reshape((384,))?
+        .to_vec1()?;
+    let related_content = vdb.get_related_chunks(query_embedding).await?;
     let mut context: Vec<VectorIndex> = vec![];
     for related in related_content.iter() {
-        let content = related.get_adjacent_chunks(1, 1).await?;
+        let content = vdb
+            .get_adjacent_chunks(related.content_id.clone(), 1, 1, related.chunk_number)
+            .await?;
         context.extend(content);
     }
     Ok(context)

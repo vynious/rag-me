@@ -1,18 +1,16 @@
 use crate::{
     cli::{Cli, Commands},
-    data::database::get_all_content,
-    data::ingest,
-    qa::answer_query,
+    data::{database::VDB, ingest},
     utils::get_current_working_dir,
 };
 use clap::Parser;
-use std::{error::Error, time::Duration};
+use std::{error::Error, sync::Arc, time::Duration};
 use tokio::{
     io::{self, AsyncBufReadExt, BufReader},
     time::timeout,
 };
 
-pub async fn run_repl() -> Result<(), Box<dyn Error>> {
+pub async fn run_repl(vdb: Arc<VDB>) -> Result<(), Box<dyn Error>> {
     println!("please enter 'ask', 'forget', 'remember', 'upload' for cli tools!");
 
     let stdin = io::stdin();
@@ -55,7 +53,7 @@ pub async fn run_repl() -> Result<(), Box<dyn Error>> {
                     eprintln!("content = {}", content);
                 }
                 Commands::List { start, limit } => {
-                    if let Ok(content) = get_all_content(start, limit).await {
+                    if let Ok(content) = vdb.get_all_content(start, limit).await {
                         for c in content {
                             println!("content: {:?}", c);
                         }

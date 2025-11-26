@@ -30,11 +30,11 @@ pub struct VectorIndex {
 
 pub struct VDB {
     db: Surreal<Db>,
-    embedder: Arc<dyn EmbeddingEngine + Send + Sync>,
+    embedder: Arc<dyn EmbeddingEngine>,
 }
 
 impl VDB {
-    pub async fn new(embedder: Arc<dyn EmbeddingEngine + Send + Sync>) -> anyhow::Result<Self> {
+    pub async fn new(embedder: Arc<dyn EmbeddingEngine>) -> anyhow::Result<Self> {
         let db = Surreal::new::<RocksDb>("ragme.db")
             .await
             .expect("Unable to connect to DB");
@@ -54,7 +54,7 @@ impl VDB {
         Ok(Self { db, embedder })
     }
 
-    async fn insert_content(&self, title: &str, text: &str) -> Result<Content, Error> {
+    pub async fn insert_content(&self, title: &str, text: &str) -> Result<Content, Error> {
         let id = Uuid::new_v4().to_string().replace("-", "");
         let id = thing(format!("content:{}", id).as_str())?;
         let content: Content = self
@@ -71,7 +71,7 @@ impl VDB {
         Ok(content)
     }
 
-    async fn insert_into_vdb(
+    pub async fn insert_into_vdb(
         &self,
         content_id: Thing,
         chunk_number: u16,
@@ -116,7 +116,7 @@ impl VDB {
     }
 
     // vector -> key -> content
-    async fn process_content(
+    pub async fn process_content(
         &self,
         title: &str,
         text: &str,
@@ -166,7 +166,7 @@ impl VDB {
     }
 
     // using cosine similarity to find nearby vectors
-    async fn get_related_chunks(&self, query: Vec<f32>) -> Result<Vec<VectorIndex>, Error> {
+    pub async fn get_related_chunks(&self, query: Vec<f32>) -> Result<Vec<VectorIndex>, Error> {
         let mut result = self.db
             .query("SELECT *, vector::similarity::cosine(vector, $query) AS score FROM vector_index ORDER BY score DESC LIMIT 4")
             .bind(("query", query))
@@ -175,7 +175,7 @@ impl VDB {
         Ok(vector_indexes)
     }
 
-    async fn get_all_content(&self, start: u16, limit: u16) -> Result<Vec<Content>, Error> {
+    pub async fn get_all_content(&self, start: u16, limit: u16) -> Result<Vec<Content>, Error> {
         let mut result = self
             .db
             .query("SELECT * FROM content ORDER BY created_at DESC LIMIT $limit START $start")
@@ -188,7 +188,7 @@ impl VDB {
     }
 
     // delete content by id from content and vector index table
-    async fn delete_content(&self, id: &str) -> Result<(), Error> {
+    pub async fn delete_content(&self, id: &str) -> Result<(), Error> {
         let id = thing(format!("content:{}", id).as_str())?;
 
         let _ = self
