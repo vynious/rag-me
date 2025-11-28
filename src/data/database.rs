@@ -39,12 +39,12 @@ impl VDB {
             .await
             .expect("Unable to connect to DB");
 
-        db.signin(Root {
-            username: "root",
-            password: "root",
-        })
-        .await
-        .expect("Failed to authenticate");
+        // db.signin(Root {
+        //     username: "root",
+        //     password: "root",
+        // })
+        // .await
+        // .expect("Failed to authenticate");
 
         db.use_ns("rag-me")
             .use_db("documents")

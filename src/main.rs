@@ -9,26 +9,23 @@ use tokio::sync::Mutex;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    println!("ai starting ~");
     // AI
     let device = Arc::new(device(false)?);
     let embedding_serivce =
         Arc::new(Embedder::new("ibm-granite/granite-embedding-30m-sparse").await?);
     let inference_pool = Arc::new(Mutex::new(
-        WorkerPool::new(3, 5, device.clone(), "Qwen/Qwen3-4B-Instruct-2507").await?,
+        WorkerPool::new(3, 5, device.clone(), "allenai/Olmo-3-7B-Think").await?,
     ));
     let ai_service = Arc::new(AI::new(embedding_serivce.clone(), inference_pool));
 
+    println!("vdb starting ~");
     // Database
     let vdb = Arc::new(VDB::new(embedding_serivce.clone()).await?);
-    // let server_task = tokio::spawn(async {
-    //     let app: Router = http::router();
-    //     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    //     println!("http server is running!");
-    //     axum::serve(listener, app).await.unwrap();
-    // });
 
+    // cli
+    println!("tui starting ~");
     cli::runner::run_repl(vdb.clone(), ai_service.clone()).await?;
-    // let _ = server_task.await;
 
     Ok(())
 }
