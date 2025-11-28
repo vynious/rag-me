@@ -1,5 +1,5 @@
 use candle_core::Device;
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 use tokio::{
     sync::{mpsc, oneshot},
     task::spawn_blocking,
@@ -14,6 +14,11 @@ struct InferenceJob {
 }
 
 pub struct InferenceResult(String);
+impl fmt::Display for InferenceResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 pub struct Worker {
     id: usize,

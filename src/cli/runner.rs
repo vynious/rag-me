@@ -1,6 +1,8 @@
 use crate::{
+    ai::AI,
     cli::{Cli, Commands},
     data::{database::VDB, ingest},
+    qa::answer_query,
     utils::get_current_working_dir,
 };
 use clap::Parser;
@@ -10,7 +12,7 @@ use tokio::{
     time::timeout,
 };
 
-pub async fn run_repl(vdb: Arc<VDB>) -> Result<(), Box<dyn Error>> {
+pub async fn run_repl(vdb: Arc<VDB>, ai: Arc<AI>) -> Result<(), Box<dyn Error>> {
     println!("please enter 'ask', 'forget', 'remember', 'upload' for cli tools!");
 
     let stdin = io::stdin();
@@ -39,7 +41,7 @@ pub async fn run_repl(vdb: Arc<VDB>) -> Result<(), Box<dyn Error>> {
                 Commands::Ask { query } => {
                     let query_str = query.join(" ");
                     eprintln!("query = {}", query_str);
-                    let response = answer_query(&query_str).await;
+                    let response = answer_query(&query_str, &vdb, &ai).await;
                     match response {
                         Ok(answer) => {
                             println!("answer: {}", answer);
@@ -91,11 +93,11 @@ pub async fn run_repl(vdb: Arc<VDB>) -> Result<(), Box<dyn Error>> {
                         match extension.to_str() {
                             Some("txt") => {
                                 eprintln!("ingesting txt file");
-                                ingest::ingest_via_txt(&path).await.unwrap();
+                                ingest::ingest_via_txt(&vdb, &path).await.unwrap();
                             }
                             Some("pdf") => {
                                 eprintln!("ingesting pdf file");
-                                ingest::ingest_via_pdf(&path).await.unwrap();
+                                ingest::ingest_via_pdf(&vdb, &path).await.unwrap();
                             }
                             _ => {
                                 eprintln!("Unsupported file type: {:?}", extension);

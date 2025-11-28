@@ -3,22 +3,25 @@ use std::sync::Arc;
 use anyhow::Error;
 
 use crate::{
-    ai::AI,
+    ai::{worker_pool::InferenceResult, AI},
     data::database::{VectorIndex, VDB},
 };
 
+// pub struct
 
-pub struct 
-
-pub async fn answer_query(query: &str) -> Result<String, Error> {
-    let context = build_context_for_query(query).await?;
-    let answer = answer_question_with_context(query, &context).await?;
+pub async fn answer_query(
+    query: &str,
+    vdb: &Arc<VDB>,
+    ai: &Arc<AI>,
+) -> Result<InferenceResult, Error> {
+    let context = build_context_for_query(&ai, &vdb, query).await?;
+    let answer = ai.answer_question_with_context(query, &context).await?;
     Ok(answer)
 }
 
 pub async fn build_context_for_query(
-    ai: Arc<AI>,
-    vdb: Arc<VDB>,
+    ai: &Arc<AI>,
+    vdb: &Arc<VDB>,
     query: &str,
 ) -> Result<Vec<VectorIndex>, Error> {
     let query_embedding: Vec<f32> = ai
