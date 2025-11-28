@@ -1,39 +1,57 @@
 # Cortex Console
 
-Local-first RAG in a TUI/CLI wrapper. Everything runs on your machine: embedding, retrieval, and generation. Candle handles the models, SurrealDB handles vectors, Axum wiring is stubbed for future HTTP.
+Local-first retrieval-augmented generation (RAG) with a TUI/CLI shell. Everything runs on your machine: embedding, vector storage, and generation—no SaaS LLMs.
 
-## What’s here (today)
-- **Generation**: OLMo via Candle (`src/ai/inference.rs`), with shard-aware safetensors loading and tokenizer merge-pair fallback so newer tokenizers still parse.
-- **Embeddings**: BERT-based embedder (currently `ibm-granite/granite-embedding-30m-sparse`) via Candle (`src/ai/embedding.rs`).
-- **Vector store**: SurrealDB RocksDB on disk (`ragme.db`) storing chunks + vectors (`src/data/database.rs`).
-- **TUI/CLI**: REPL commands (`ask`, `upload`, etc.) in `src/cli/runner.rs`.
-- **HTTP skeleton**: Axum scaffold in `main.rs` / `src/http` for later UI/API.
+## Why it’s useful
+- **Private by default**: all embedding and generation stay local.
+- **Batteries included**: Candle handles Granite embeddings and OLMo generation; SurrealDB stores vectors; Ratatui/Crossterm power the CLI.
+- **Chunk + retrieve**: ingest txt/pdf, chunk content, store vectors, and query with cosine similarity.
+- **Concurrent inference**: Tokio worker pool feeds multiple OLMo workers without blocking the REPL.
 
-## How it’s wired
-```
-CLI / (future HTTP)
-   |
-AI service (embedder + inference pool)  <-- see src/ai
-   |
-SurrealDB vector store + corpus files   <-- see src/data
-```
+## What’s inside
+- Generation: OLMo via Candle with shard-aware safetensors loading (`src/ai/inference.rs`).
+- Embeddings: Granite sparse embedder via Candle (`src/ai/embedding.rs`).
+- Vector store: SurrealDB RocksDB on disk (`ragme.db`) (`src/data/database.rs`).
+- TUI/CLI: commands like `ask`, `upload`, `list`, `forget` (`src/cli/runner.rs`).
+- HTTP scaffold: Axum starter in `src/http` (not wired yet).
 
-## Setup
-- Rust 2021 toolchain.
-- Disk for model weights (downloads via `hf-hub`; defaults: OLMo for gen, Granite embedder).
-- Local RocksDB file is created automatically (`ragme.db`).
+## Quick start
+Prereqs: Rust 2021 toolchain, disk space for model weights (fetched via `hf-hub`), optional GPU/MPS for Candle acceleration.
 
-Build:
 ```bash
-cargo check
-```
-
-Run:
-```bash
+git clone https://github.com/your-org/cortex-console.git
+cd cortex-console
 cargo run
 ```
 
-## Next steps (roadmap)
-- Finish router/session plumbing and retrieval-backed prompting.
-- Broaden ingestion (repo-aware chunking) and CLI ergonomics.
-- Allow engine swaps (e.g., Ollama/vLLM) once routing is in place.
+First run downloads:
+- Generator: `allenai/Olmo-3-7B-Think`
+- Embedder: `ibm-granite/granite-embedding-30m-sparse`
+
+## Using the CLI
+After `cargo run`, the REPL shows available commands. Examples:
+
+```text
+ask "how do I configure SurrealDB?"
+upload ./docs/notes.pdf        # ingest pdf
+upload ./notes.txt             # ingest txt
+list --start 0 --limit 10      # list stored content
+forget --content-id <id>       # remove one item
+forget --all                   # wipe everything
+```
+
+Responses use retrieval-backed prompts: chunks are fetched from SurrealDB and passed to the OLMo workers via the inference pool.
+
+## How it’s wired
+```
+TUI / (future HTTP)
+   |
+AI service (embedder + inference pool)  <-- src/ai
+   |
+SurrealDB (RocksDB) + corpus files      <-- src/data
+```
+
+## Development
+- Build: `cargo check`
+- Run: `cargo run`
+- Key files: `src/ai/inference.rs`, `src/ai/embedding.rs`, `src/ai/worker_pool.rs`, `src/data/database.rs`, `src/cli/runner.rs`, `src/main.rs`.
