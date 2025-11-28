@@ -5,10 +5,10 @@ edition = "2021"
 
 [dependencies]
 axum = "0.8.1"
-candle-transformers = { git = "https://github.com/huggingface/candle", branch = "main" }
-candle-nn = { git = "https://github.com/huggingface/candle", branch = "main" }
+candle-core         = "0.8.1"
+candle-nn           = "0.8.1"
+candle-transformers = "0.8.1"
 tokenizers = "0.15.0"
-candle-core = { git = "https://github.com/huggingface/candle", branch = "main" }
 clap = { version = "4.5.26", features = ["derive"] }
 hf-hub = { version = "0.4.1", features = ["tokio"] }
 rig-core = "0.6.1"
@@ -22,6 +22,8 @@ surrealdb = { version = "2.1.4", features = ["kv-rocksdb"] }
 pdf-extract = "0.8.0"
 shell-words = "1.1.0"
 async-trait = "0.1.89"
+ratatui = "0.27"
+crossterm = "0.27"
 
 [lib]
 name = "lib"

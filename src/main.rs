@@ -1,9 +1,7 @@
-use axum::Router;
 use lib::{
-    ai::{embedding::Embedder, inference::TextGeneration, worker_pool::WorkerPool, AI},
+    ai::{embedding::Embedder, worker_pool::WorkerPool, AI},
     cli,
     data::database::VDB,
-    http,
     utils::device,
 };
 use std::{error::Error, sync::Arc};
@@ -13,8 +11,11 @@ use tokio::sync::Mutex;
 async fn main() -> Result<(), Box<dyn Error>> {
     // AI
     let device = Arc::new(device(false)?);
-    let embedding_serivce = Arc::new(Embedder::new("").await?);
-    let inference_pool = Arc::new(Mutex::new(WorkerPool::new(3, 5, device.clone(), "").await?));
+    let embedding_serivce =
+        Arc::new(Embedder::new("ibm-granite/granite-embedding-30m-sparse").await?);
+    let inference_pool = Arc::new(Mutex::new(
+        WorkerPool::new(3, 5, device.clone(), "Qwen/Qwen3-4B-Instruct-2507").await?,
+    ));
     let ai_service = Arc::new(AI::new(embedding_serivce.clone(), inference_pool));
 
     // Database
