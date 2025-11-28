@@ -1,57 +1,47 @@
 # Cortex Console
 
-Local-first retrieval-augmented generation (RAG) with a TUI/CLI shell. Everything runs on your machine: embedding, vector storage, and generation—no SaaS LLMs.
+Local-first retrieval-augmented generation (RAG) in a TUI/CLI shell. Embedding, vector storage, and generation all run on your machine—no SaaS dependencies.
 
-## Why it’s useful
-- **Private by default**: all embedding and generation stay local.
-- **Batteries included**: Candle handles Granite embeddings and OLMo generation; SurrealDB stores vectors; Ratatui/Crossterm power the CLI.
-- **Chunk + retrieve**: ingest txt/pdf, chunk content, store vectors, and query with cosine similarity.
-- **Concurrent inference**: Tokio worker pool feeds multiple OLMo workers without blocking the REPL.
+## What it does
+- Ingest txt/pdf files, chunk them, embed locally, and store vectors.
+- Retrieve similar chunks with cosine similarity and answer queries using OLMo generation.
+- Run entirely offline once weights are cached.
 
-## What’s inside
-- Generation: OLMo via Candle with shard-aware safetensors loading (`src/ai/inference.rs`).
-- Embeddings: Granite sparse embedder via Candle (`src/ai/embedding.rs`).
-- Vector store: SurrealDB RocksDB on disk (`ragme.db`) (`src/data/database.rs`).
-- TUI/CLI: commands like `ask`, `upload`, `list`, `forget` (`src/cli/runner.rs`).
-- HTTP scaffold: Axum starter in `src/http` (not wired yet).
+## Interesting techniques
+- Shard-aware safetensors loading for large models to keep startup lean ([`src/ai/inference.rs`](src/ai/inference.rs)).
+- Merge-pair tokenizer fallback to handle newer tokenizer JSON formats without upgrading the tokenizer crate ([`src/ai/inference.rs`](src/ai/inference.rs)).
+- Tokio worker pool with `mpsc` + `oneshot` channels and `spawn_blocking` to drive concurrent generation without blocking the CLI ([`src/ai/worker_pool.rs`](src/ai/worker_pool.rs)).
+- Retrieval prepends adjacent chunks to widen context before answering ([`src/qa/mod.rs`](src/qa/mod.rs)).
+- Simple cosine-similarity ranking directly inside SurrealDB ([`src/data/database.rs`](src/data/database.rs)).
 
-## Quick start
-Prereqs: Rust 2021 toolchain, disk space for model weights (fetched via `hf-hub`), optional GPU/MPS for Candle acceleration.
+## Notable libraries
+- [Candle](https://github.com/huggingface/candle) for inference and embeddings.
+- [OLMo](https://huggingface.co/allenai/Olmo-3-7B-Think) for generation.
+- [Granite sparse embedder](https://huggingface.co/ibm-granite/granite-embedding-30m-sparse) for embeddings.
+- [SurrealDB](https://surrealdb.com/) (RocksDB backend) for local vector storage.
+- [Ratatui](https://github.com/tui-rs-revival/ratatui) + [Crossterm](https://github.com/crossterm-rs/crossterm) for the TUI/CLI.
+- [hf-hub](https://github.com/huggingface/hf-hub) for model artifact fetching.
+- [pdf-extract](https://crates.io/crates/pdf-extract) for PDF ingestion.
 
-```bash
-git clone https://github.com/your-org/cortex-console.git
-cd cortex-console
-cargo run
+## Project structure
 ```
-
-First run downloads:
-- Generator: `allenai/Olmo-3-7B-Think`
-- Embedder: `ibm-granite/granite-embedding-30m-sparse`
-
-## Using the CLI
-After `cargo run`, the REPL shows available commands. Examples:
-
-```text
-ask "how do I configure SurrealDB?"
-upload ./docs/notes.pdf        # ingest pdf
-upload ./notes.txt             # ingest txt
-list --start 0 --limit 10      # list stored content
-forget --content-id <id>       # remove one item
-forget --all                   # wipe everything
+Cargo.toml
+README.md
+context/
+ragme.db
+src/
+  ai/
+  cli/
+  data/
+  http/
+  qa/
+  router/
+  utils.rs
+target/
 ```
-
-Responses use retrieval-backed prompts: chunks are fetched from SurrealDB and passed to the OLMo workers via the inference pool.
-
-## How it’s wired
-```
-TUI / (future HTTP)
-   |
-AI service (embedder + inference pool)  <-- src/ai
-   |
-SurrealDB (RocksDB) + corpus files      <-- src/data
-```
-
-## Development
-- Build: `cargo check`
-- Run: `cargo run`
-- Key files: `src/ai/inference.rs`, `src/ai/embedding.rs`, `src/ai/worker_pool.rs`, `src/data/database.rs`, `src/cli/runner.rs`, `src/main.rs`.
+- `src/ai`: embedding, inference (OLMo), and worker pool.
+- `src/cli`: Ratatui/Crossterm REPL commands (`ask`, `upload`, `list`, `forget`).
+- `src/data`: SurrealDB access and ingestion (txt/pdf).
+- `src/qa`: retrieval + context assembly for answers.
+- `src/http`: Axum scaffold (future API).
+- `context`: local artifacts; `ragme.db`: RocksDB file.
