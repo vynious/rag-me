@@ -45,3 +45,7 @@ target/
 - `src/qa`: retrieval + context assembly for answers.
 - `src/http`: Axum scaffold (future API).
 - `context`: local artifacts; `ragme.db`: RocksDB file.
+
+## TODOs (near-term)
+- Run blocking actions off the UI task: send commands over a channel to a background service and receive replies via oneshot; log results in the UI pane.
+- Start the TUI immediately, load AI + VDB in a background task, and surface readiness/status updates without blocking initial render.
