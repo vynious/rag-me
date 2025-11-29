@@ -123,7 +123,6 @@ impl TextGeneration {
 impl InferenceEngine for TextGeneration {
     fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String> {
         let tokens = self.tokenizer.encode(prompt, true).map_err(E::msg)?;
-        println!("Encoded tokens: {:?}", tokens.get_ids());
         if tokens.is_empty() {
             anyhow::bail!("Empty prompts are not supported in the phi model.")
         }

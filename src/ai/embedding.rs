@@ -118,7 +118,6 @@ impl EmbeddingEngine for Embedder {
 
 impl Embedder {
     pub async fn new(name: &str) -> Result<Self> {
-        println!("loading embedding model: {}", name);
         let (model, tokenizer) = load_embedding_model(name).await?;
         Ok(Self { model, tokenizer })
     }

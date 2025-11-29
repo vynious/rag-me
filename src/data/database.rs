@@ -139,7 +139,6 @@ impl VDB {
         }
 
         for (i, chunk) in chunks.clone().into_iter().enumerate() {
-            println!("memorizing chunk {}", i);
             let res = self
                 .insert_into_vdb(content.id.clone(), i as u16, chunk, metadata.clone())
                 .await;
@@ -149,7 +148,6 @@ impl VDB {
                     if e.to_string().contains("content chunk is empty!") {
                         continue;
                     }
-                    println!("unable to insert vector index: {}", e)
                 }
             }
         }

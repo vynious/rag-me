@@ -9,8 +9,6 @@ use tokio::sync::Mutex;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("ai starting ~");
-    // AI
     let device = Arc::new(device(false)?);
     let embedding_serivce =
         Arc::new(Embedder::new("ibm-granite/granite-embedding-30m-sparse").await?);
@@ -19,12 +17,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     ));
     let ai_service = Arc::new(AI::new(embedding_serivce.clone(), inference_pool));
 
-    println!("vdb starting ~");
-    // Database
     let vdb = Arc::new(VDB::new(embedding_serivce.clone()).await?);
 
-    // cli
-    println!("tui starting ~");
     cli::runner::run_repl(vdb.clone(), ai_service.clone()).await?;
 
     Ok(())

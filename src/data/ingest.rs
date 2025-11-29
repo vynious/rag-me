@@ -31,15 +31,13 @@ pub async fn ingest_via_txt(vdb: &Arc<VDB>, path: &PathBuf) -> anyhow::Result<()
         .join("\n");
 
     // content now is continous with `\n`
-    let content = vdb
+    let _content = vdb
         .process_content(
             &file_name,
             &content,
             json!({"source": file_name, "upload_time": Datetime::default()}),
         )
         .await?;
-
-    println!("memorised {}", &content.title);
     Ok(())
 }
 
@@ -53,16 +51,12 @@ pub async fn ingest_via_pdf(vdb: &Arc<VDB>, path: &PathBuf) -> anyhow::Result<()
         .to_str()
         .context("shag")?;
 
-    println!("processing file via pdf for {}", file_name);
-
-    let content = vdb
+    let _content = vdb
         .process_content(
             &file_name,
             &out,
             json!({"source": file_name, "upload_time": Datetime::default()}),
         )
         .await?;
-
-    println!("memorised {}", content.title);
     Ok(())
 }

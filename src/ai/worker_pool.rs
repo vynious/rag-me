@@ -74,11 +74,9 @@ impl WorkerPool {
         device: Arc<Device>,
         name: &str,
     ) -> anyhow::Result<Self> {
-        println!("loading inference pool of size: {}", size);
         let mut workers: Vec<mpsc::Sender<InferenceJob>> = Vec::with_capacity(size);
         let artifacts = Arc::new(load_artifacts(name).await?);
         for i in 0..size {
-            println!("loading inference worker: {}-{}", name, size);
             let inference_service = TextGeneration::new(
                 name,
                 398752958,
