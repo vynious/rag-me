@@ -2,7 +2,6 @@ use crate::ai::EmbeddingEngine;
 use anyhow::{Context, Error};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use surrealdb::opt::auth::Root;
 use surrealdb::{
     engine::local::{Db, RocksDb},
     sql::{thing, Thing},
@@ -35,21 +34,14 @@ pub struct VDB {
 
 impl VDB {
     pub async fn new(embedder: Arc<dyn EmbeddingEngine>) -> anyhow::Result<Self> {
-        let db = Surreal::new::<RocksDb>("ragme.db")
+        let db = Surreal::new::<RocksDb>("./ragme.db")
             .await
-            .expect("Unable to connect to DB");
-
-        // db.signin(Root {
-        //     username: "root",
-        //     password: "root",
-        // })
-        // .await
-        // .expect("Failed to authenticate");
+            .context("Unable to connect to DB")?;
 
         db.use_ns("rag-me")
             .use_db("documents")
             .await
-            .expect("Failed to switch to namespace and database");
+            .context("Failed to switch to namespace and database")?;
 
         Ok(Self { db, embedder })
     }

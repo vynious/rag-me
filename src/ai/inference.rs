@@ -23,17 +23,24 @@ pub trait InferenceEngine {
     fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String>;
 }
 
+#[derive(Clone)]
+pub struct Artifacts {
+    config: olmo::Config,
+    tokenizer: Arc<Tokenizer>,
+    shard_paths: Vec<PathBuf>,
+}
+
 pub struct TextGeneration {
     name: String,
     model: olmo::Model,
     device: Arc<Device>,
-    tokenizer: Tokenizer,
+    tokenizer: Arc<Tokenizer>,
     logits_processor: LogitsProcessor,
     repeat_penalty: f32,
     repeat_last_n: usize,
 }
 
-async fn load_inference_model(name: &str) -> Result<(olmo::Model, tokenizers::Tokenizer)> {
+pub async fn load_artifacts(name: &str) -> Result<(Artifacts)> {
     let api = Api::new()?.repo(Repo::model(name.to_string()));
 
     // get tokenizer
@@ -66,16 +73,25 @@ async fn load_inference_model(name: &str) -> Result<(olmo::Model, tokenizers::To
     }
 
     shard_paths.sort();
+    Ok(Artifacts {
+        config,
+        tokenizer: Arc::new(tokenizer),
+        shard_paths,
+    })
+}
 
+pub async fn load_inference_model(artifacts: &Arc<Artifacts>) -> Result<olmo::Model> {
     // build VarBuilder from all shards
-    let vb =
-        unsafe { VarBuilder::from_mmaped_safetensors(&shard_paths, DType::F16, &device(false)?)? };
+    let vb = unsafe {
+        VarBuilder::from_mmaped_safetensors(&artifacts.shard_paths, DType::F16, &device(false)?)?
+    };
 
     // init the model
-    let model = olmo::Model::new(&config, vb)?;
+    let model = olmo::Model::new(&artifacts.config, vb)?;
 
-    Ok((model, tokenizer))
+    Ok(model)
 }
+
 impl TextGeneration {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
@@ -86,15 +102,16 @@ impl TextGeneration {
         repeat_penalty: f32,
         repeat_last_n: usize,
         device: Arc<Device>,
+        artifacts: Arc<Artifacts>,
     ) -> Result<Self> {
         let logits_processor = LogitsProcessor::new(seed, temp, top_p);
-        let (model, tokenizer) = load_inference_model(name)
+        let model = load_inference_model(&artifacts)
             .await
             .expect("Failed to load inference model");
         Ok(Self {
             name: name.to_string(),
             model,
-            tokenizer,
+            tokenizer: artifacts.tokenizer.clone(),
             logits_processor,
             repeat_penalty,
             repeat_last_n,
