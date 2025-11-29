@@ -134,6 +134,7 @@ impl InferenceEngine for TextGeneration {
             None => anyhow::bail!("cannot find the endoftext token"),
         };
         let start_gen = std::time::Instant::now();
+        let prompt_len = tokens.len();
 
         let mut response = String::new();
 
@@ -145,7 +146,7 @@ impl InferenceEngine for TextGeneration {
             let ctxt = &tokens[tokens.len().saturating_sub(context_size)..];
             let input = Tensor::new(ctxt, &self.device)?.unsqueeze(0)?;
             let logits = self.model.forward(&input, seqlen_offset)?;
-            let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
+            let logits = logits.squeeze(1)?.squeeze(0)?.to_dtype(DType::F32)?;
             let logits = if self.repeat_penalty == 1. {
                 logits
             } else {
@@ -158,18 +159,16 @@ impl InferenceEngine for TextGeneration {
             };
 
             let next_token = self.logits_processor.sample(&logits)?;
-            println!("Generated token: {}", next_token);
             tokens.push(next_token);
             generated_tokens += 1;
             if next_token == eos_token || next_token == 198 {
-                println!("EOS token generated, stopping generation");
                 break;
             }
-            let token = self.tokenizer.decode(&[next_token], true).map_err(E::msg)?;
-            response += &token;
         }
         let dt = start_gen.elapsed();
-        println!("Final response: {}", response);
+        let generated = &tokens[prompt_len..];
+        let response = self.tokenizer.decode(generated, true).map_err(E::msg)?;
+
         Ok(response.trim().to_string())
     }
 }
