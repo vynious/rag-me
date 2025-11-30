@@ -1,95 +1,41 @@
-use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::{collections::HashMap, fs::File};
 
-use crate::utils::device;
-use anyhow::{Context, Error as E, Result};
+use anyhow::{Error as E, Result};
 use candle_core::{DType, Device, Tensor};
-use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
-use candle_transformers::models::olmo;
+use candle_transformers::models::quantized_mixformer::Config;
+use candle_transformers::models::quantized_mixformer::MixFormerSequentialForCausalLM as QMixFormer;
 use hf_hub::{api::sync::Api, Repo};
-use serde::Deserialize;
 use tokenizers::Tokenizer;
-
-#[derive(Deserialize)]
-struct SafetensorsIndex {
-    // hf format
-    weight_map: HashMap<String, String>,
-}
 
 pub trait InferenceEngine {
     fn run(&mut self, prompt: &str, sample_len: usize) -> Result<String>;
 }
 
-#[derive(Clone)]
-pub struct Artifacts {
-    config: olmo::Config,
-    tokenizer: Arc<Tokenizer>,
-    shard_paths: Vec<PathBuf>,
-}
-
 pub struct TextGeneration {
     name: String,
-    model: olmo::Model,
+    model: QMixFormer,
     device: Arc<Device>,
-    tokenizer: Arc<Tokenizer>,
+    tokenizer: Tokenizer,
     logits_processor: LogitsProcessor,
     repeat_penalty: f32,
     repeat_last_n: usize,
 }
 
-pub async fn load_artifacts(name: &str) -> Result<(Artifacts)> {
+pub async fn load_inference_model(name: &str, device: &Device) -> Result<(QMixFormer, Tokenizer)> {
     let api = Api::new()?.repo(Repo::model(name.to_string()));
+    let tokenizer_filename = api.get("tokenizer.json")?;
+    let weights_filename = api.get("model-q4k.gguf")?;
 
-    // get tokenizer
-    let tokenizer_path = api.get("tokenizer.json")?;
-    let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path).map_err(E::msg)?;
+    let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
+    let config = Config::v2();
+    let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(
+        &weights_filename,
+        &device,
+    )?;
+    let model = QMixFormer::new_v2(&config, vb)?;
 
-    // get config
-    let config_path = api.get("config.json")?;
-    let config_file = File::open(&config_path)?;
-    let config: olmo::Config =
-        serde_json::from_reader(config_file).context("failed to parse config.json")?;
-
-    // load the index JSON
-    let index_path = api.get("model.safetensors.index.json")?;
-    let index_file = File::open(&index_path)?;
-    let index: SafetensorsIndex = serde_json::from_reader(index_file)
-        .context("failed to parse model.safetensors.index.json")?;
-
-    // collect unique shard filenames from the weight_map
-    let mut shard_names: HashSet<String> = HashSet::new();
-    for fname in index.weight_map.values() {
-        shard_names.insert(fname.clone());
-    }
-
-    // download each shard and build the Vec<PathBuf> for VarBuilder
-    let mut shard_paths: Vec<PathBuf> = Vec::new();
-    for fname in shard_names {
-        let p = api.get(&fname)?;
-        shard_paths.push(p);
-    }
-
-    shard_paths.sort();
-    Ok(Artifacts {
-        config,
-        tokenizer: Arc::new(tokenizer),
-        shard_paths,
-    })
-}
-
-pub async fn load_inference_model(artifacts: &Arc<Artifacts>) -> Result<olmo::Model> {
-    // build VarBuilder from all shards
-    let vb = unsafe {
-        VarBuilder::from_mmaped_safetensors(&artifacts.shard_paths, DType::F16, &device(false)?)?
-    };
-
-    // init the model
-    let model = olmo::Model::new(&artifacts.config, vb)?;
-
-    Ok(model)
+    Ok((model, tokenizer))
 }
 
 impl TextGeneration {
@@ -102,18 +48,15 @@ impl TextGeneration {
         repeat_penalty: f32,
         repeat_last_n: usize,
         device: Arc<Device>,
-        artifacts: Arc<Artifacts>,
     ) -> Result<Self> {
         let logits_processor = LogitsProcessor::new(seed, temp, top_p);
-        let model = load_inference_model(&artifacts)
-            .await
-            .expect("Failed to load inference model");
+        let (model, tokenizer) = load_inference_model(name, &device).await?;
         Ok(Self {
             name: name.to_string(),
             model,
-            tokenizer: artifacts.tokenizer.clone(),
             logits_processor,
             repeat_penalty,
+            tokenizer,
             repeat_last_n,
             device,
         })
@@ -133,19 +76,15 @@ impl InferenceEngine for TextGeneration {
             None => anyhow::bail!("cannot find the endoftext token"),
         };
         let start_gen = std::time::Instant::now();
-        let prompt_len = tokens.len();
 
         let mut response = String::new();
 
-        self.model.clear_kv_cache();
-
         for index in 0..sample_len {
             let context_size = if index > 0 { 1 } else { tokens.len() };
-            let seqlen_offset = tokens.len().saturating_sub(context_size);
             let ctxt = &tokens[tokens.len().saturating_sub(context_size)..];
             let input = Tensor::new(ctxt, &self.device)?.unsqueeze(0)?;
-            let logits = self.model.forward(&input, seqlen_offset)?;
-            let logits = logits.squeeze(1)?.squeeze(0)?.to_dtype(DType::F32)?;
+            let logits = self.model.forward(&input)?;
+            let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
             let logits = if self.repeat_penalty == 1. {
                 logits
             } else {
@@ -163,11 +102,10 @@ impl InferenceEngine for TextGeneration {
             if next_token == eos_token || next_token == 198 {
                 break;
             }
+            let token = self.tokenizer.decode(&[next_token], true).map_err(E::msg)?;
+            response += &token;
         }
         let dt = start_gen.elapsed();
-        let generated = &tokens[prompt_len..];
-        let response = self.tokenizer.decode(generated, true).map_err(E::msg)?;
-
         Ok(response.trim().to_string())
     }
 }

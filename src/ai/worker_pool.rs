@@ -5,7 +5,7 @@ use tokio::{
     task::spawn_blocking,
 };
 
-use crate::ai::inference::{load_artifacts, InferenceEngine, TextGeneration};
+use crate::ai::inference::{InferenceEngine, TextGeneration};
 
 struct InferenceJob {
     prompt: String,
@@ -75,7 +75,6 @@ impl WorkerPool {
         name: &str,
     ) -> anyhow::Result<Self> {
         let mut workers: Vec<mpsc::Sender<InferenceJob>> = Vec::with_capacity(size);
-        let artifacts = Arc::new(load_artifacts(name).await?);
         for i in 0..size {
             let inference_service = TextGeneration::new(
                 name,
@@ -85,7 +84,6 @@ impl WorkerPool {
                 1.1,
                 64,
                 device.clone(),
-                artifacts.clone(),
             )
             .await?;
             let (worker, tx) = Worker::new(i, buffer, Box::new(inference_service));

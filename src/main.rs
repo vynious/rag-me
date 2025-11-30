@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let embedding_serivce =
         Arc::new(Embedder::new("ibm-granite/granite-embedding-30m-sparse").await?);
     let inference_pool = Arc::new(Mutex::new(
-        WorkerPool::new(1, 5, device.clone(), "allenai/Olmo-3-7B-Think").await?,
+        WorkerPool::new(1, 5, device.clone(), "Demonthos/dolphin-2_6-phi-2-candle").await?,
     ));
     let ai_service = Arc::new(AI::new(embedding_serivce.clone(), inference_pool));
 

@@ -7,7 +7,6 @@ use crate::{
     qa::answer_query,
     utils::get_current_working_dir,
 };
-use anyhow::{anyhow, bail};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
@@ -21,9 +20,8 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Terminal,
 };
-use serde_json::json;
 use std::{collections::VecDeque, error::Error, io::stdout, sync::Arc, time::Instant};
-use tokio::{sync::mpsc, task::spawn_blocking};
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Copy)]
 enum Focus {
