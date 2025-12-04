@@ -4,3 +4,5 @@ pub mod data;
 pub mod http;
 pub mod qa;
 pub mod utils;
+pub mod app;
+

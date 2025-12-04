@@ -29,11 +29,13 @@ pub struct VectorIndex {
 
 pub struct VDB {
     db: Surreal<Db>,
-    embedder: Arc<dyn EmbeddingEngine>,
+    embedder: Arc<dyn EmbeddingEngine + Send + Sync + 'static>,
 }
 
 impl VDB {
-    pub async fn new(embedder: Arc<dyn EmbeddingEngine>) -> anyhow::Result<Self> {
+    pub async fn new(
+        embedder: Arc<dyn EmbeddingEngine + Send + Sync + 'static>,
+    ) -> anyhow::Result<Self> {
         let db = Surreal::new::<RocksDb>("./ragme.db")
             .await
             .context("Unable to connect to DB")?;

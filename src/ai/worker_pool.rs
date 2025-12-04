@@ -13,7 +13,8 @@ struct InferenceJob {
     reply_tx: oneshot::Sender<InferenceResult>,
 }
 
-pub struct InferenceResult(String);
+#[derive(Debug)]
+pub struct InferenceResult(pub String);
 impl fmt::Display for InferenceResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)

@@ -7,6 +7,7 @@ use crate::{
     qa::answer_query,
     utils::get_current_working_dir,
 };
+use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
@@ -20,7 +21,12 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Terminal,
 };
-use std::{collections::VecDeque, error::Error, io::stdout, sync::Arc, time::Instant};
+use std::{
+    collections::VecDeque,
+    error::Error,
+    io::stdout,
+    sync::Arc,
+};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Copy)]
@@ -30,6 +36,17 @@ enum Focus {
     Upload,
     List,
     Help,
+}
+
+enum AppEvent {
+    Input(Event),
+    Tick,
+    Answered {
+        query: String,
+        result: Result<String>,
+    },
+    ContentLoaded(Vec<Content>),
+    Log(String),
 }
 
 struct App {
@@ -97,34 +114,59 @@ pub async fn run_repl(vdb: Arc<VDB>, ai: Arc<AI>) -> Result<(), Box<dyn Error>> 
     let mut terminal = Terminal::new(backend)?;
     let mut app = App::new();
 
-    // Prime the content list once at startup.
-    app.status = "Loading content…".into();
-    if let Err(e) = refresh_content(&mut app, &vdb).await {
-        app.push_log(format!("failed to load content: {e}"));
-    } else {
-        app.status = "Ready".into();
+    // event bus
+    let (ev_tx, mut ev_rx) = mpsc::channel::<AppEvent>(128);
+
+    // input read -> appevent inputs
+    {
+        let tx = ev_tx.clone();
+        tokio::task::spawn_blocking(move || {
+            // read events from terminal
+            while let Ok(ev) = event::read() {
+                // send app event and check if error
+                if tx.blocking_send(AppEvent::Input(ev)).is_err() {
+                    break;
+                }
+            }
+        });
     }
 
-    let (tx, mut rx) = mpsc::channel(32);
-    tokio::task::spawn_blocking(move || loop {
-        if let Ok(ev) = event::read() {
-            if tx.blocking_send(ev).is_err() {
-                break;
+    // load content without blocking UI
+    {
+        let tx = ev_tx.clone();
+        let vdb = vdb.clone();
+        tokio::spawn(async move {
+            let res = vdb.get_all_content(0, 10).await;
+            match res {
+                Ok(items) => {
+                    let _ = tx.send(AppEvent::ContentLoaded(items)).await;
+                }
+                Err(e) => {
+                    let _ = tx.send(AppEvent::Log(format!("failed to load {e}"))).await;
+                }
             }
-        } else {
-            break;
-        }
-    });
+        });
+    }
 
     while !app.should_quit {
         terminal.draw(|f| draw_ui(f, &app))?;
-        match rx.recv().await {
-            Some(ev) => {
-                if let Err(e) = handle_event(ev, &mut app, &vdb, &ai).await {
-                    app.push_log(format!("error: {e}"));
-                    app.status = "Error".into();
-                }
+
+        match ev_rx.recv().await {
+            Some(AppEvent::Input(ev)) => handle_input(ev, &mut app, &ev_tx, &vdb, &ai).await?,
+            Some(AppEvent::Tick) => { /* optional: animations/timeouts */ }
+            Some(AppEvent::ContentLoaded(items)) => {
+                app.contents = items;
+                app.status = "Ready".into();
             }
+            Some(AppEvent::Answered { query, result }) => {
+                match result {
+                    Ok(ans) => app.answer = ans,
+                    Err(e) => app.answer = format!("error: {e}"),
+                }
+                app.status = "Ready".into();
+                app.push_log(format!("ask: {query}"));
+            }
+            Some(AppEvent::Log(msg)) => app.push_log(msg),
             None => break,
         }
     }
@@ -134,9 +176,10 @@ pub async fn run_repl(vdb: Arc<VDB>, ai: Arc<AI>) -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
-async fn handle_event(
+async fn handle_input(
     ev: Event,
     app: &mut App,
+    ev_tx: &mpsc::Sender<AppEvent>,
     vdb: &Arc<VDB>,
     ai: &Arc<AI>,
 ) -> Result<(), Box<dyn Error>> {
@@ -145,34 +188,120 @@ async fn handle_event(
             return Ok(());
         }
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => {
-                app.should_quit = true;
-            }
+            KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
             KeyCode::Tab => app.cycle_focus(false),
             KeyCode::BackTab => app.cycle_focus(true),
+
             KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 app.status = "Refreshing content…".into();
-                refresh_content(app, vdb).await?;
-                app.status = "Ready".into();
+                let tx = ev_tx.clone();
+                let vdb = vdb.clone();
+                let start = app.start;
+                let limit = app.limit;
+                tokio::spawn(async move {
+                    let res = vdb.get_all_content(start, limit).await;
+                    let _ = match res {
+                        Ok(items) => tx.send(AppEvent::ContentLoaded(items)).await,
+                        Err(e) => tx.send(AppEvent::Log(format!("refresh error: {e}"))).await,
+                    };
+                });
             }
-            KeyCode::Char(c) => {
-                match app.focus {
-                    Focus::Ask => app.ask_input.push(c),
-                    Focus::Remember => app.remember_input.push(c),
-                    Focus::Upload => app.upload_input.push(c),
-                    Focus::List => {
-                        // adjust paging quickly
-                        if c == '+' {
-                            app.start = app.start.saturating_add(app.limit);
-                            refresh_content(app, vdb).await?;
-                        } else if c == '-' {
-                            app.start = app.start.saturating_sub(app.limit);
-                            refresh_content(app, vdb).await?;
-                        }
+
+            KeyCode::Enter => match app.focus {
+                Focus::Ask => {
+                    let query = app.ask_input.trim().to_string();
+                    if query.is_empty() {
+                        app.status = "Query is empty".into();
+                    } else {
+                        app.status = "Thinking…".into();
+                        let tx = ev_tx.clone();
+                        let vdb = vdb.clone();
+                        let ai = ai.clone();
+                        tokio::spawn(async move {
+                            let res = answer_query(&query, &vdb, &ai).await;
+                            let _ = tx
+                                .send(AppEvent::Answered {
+                                    query,
+                                    result: res.map(|r| r.0).map_err(|e| e.into()),
+                                })
+                                .await;
+                        });
                     }
-                    Focus::Help => {}
                 }
-            }
+                Focus::Remember => {
+                    let note = app.remember_input.trim().to_string();
+                    if note.is_empty() {
+                        app.status = "Note is empty".into();
+                    } else {
+                        app.status = "Saving…".into();
+                        let tx = ev_tx.clone();
+                        let vdb = vdb.clone();
+                        tokio::spawn(async move {
+                            let res = ingest_note(&vdb, &note).await;
+                            let _ = tx.send(AppEvent::Log(format!("remember: {res:?}"))).await;
+                            if res.is_ok() {
+                                let _ = tx
+                                    .send(AppEvent::ContentLoaded(
+                                        vdb.get_all_content(0, 10).await.unwrap_or_default(),
+                                    ))
+                                    .await;
+                            }
+                        });
+                    }
+                }
+                Focus::Upload => {
+                    let path = app.upload_input.trim().to_string();
+                    if path.is_empty() {
+                        app.status = "Path is empty".into();
+                    } else {
+                        app.status = "Uploading…".into();
+                        let tx = ev_tx.clone();
+                        let vdb = vdb.clone();
+                        tokio::spawn(async move {
+                            let res = ingest_path(&vdb, &path).await;
+                            let _ = tx.send(AppEvent::Log(format!("upload: {res:?}"))).await;
+                            if res.is_ok() {
+                                let _ = tx
+                                    .send(AppEvent::ContentLoaded(
+                                        vdb.get_all_content(0, 10).await.unwrap_or_default(),
+                                    ))
+                                    .await;
+                            }
+                        });
+                    }
+                }
+                Focus::List => {
+                    let tx = ev_tx.clone();
+                    let vdb = vdb.clone();
+                    let start = app.start;
+                    let limit = app.limit;
+                    tokio::spawn(async move {
+                        let res = vdb.get_all_content(start, limit).await;
+                        let _ = match res {
+                            Ok(items) => tx.send(AppEvent::ContentLoaded(items)).await,
+                            Err(e) => tx.send(AppEvent::Log(format!("refresh error: {e}"))).await,
+                        };
+                    });
+                }
+                Focus::Help => {}
+            },
+
+            KeyCode::Char(c) => match app.focus {
+                Focus::Ask => app.ask_input.push(c),
+                Focus::Remember => app.remember_input.push(c),
+                Focus::Upload => app.upload_input.push(c),
+                Focus::List => {
+                    if c == '+' {
+                        app.start = app.start.saturating_add(app.limit);
+                        let _ = ev_tx.send(AppEvent::Log("paging +".into())).await;
+                    } else if c == '-' {
+                        app.start = app.start.saturating_sub(app.limit);
+                        let _ = ev_tx.send(AppEvent::Log("paging -".into())).await;
+                    }
+                }
+                Focus::Help => {}
+            },
+
             KeyCode::Backspace => match app.focus {
                 Focus::Ask => {
                     app.ask_input.pop();
@@ -185,65 +314,14 @@ async fn handle_event(
                 }
                 _ => {}
             },
-            KeyCode::Enter => match app.focus {
-                Focus::Ask => {
-                    if app.ask_input.trim().is_empty() {
-                        app.status = "Query is empty".into();
-                    } else {
-                        let query = app.ask_input.trim().to_string();
-                        app.status = "Thinking…".into();
-                        let started = Instant::now();
-                        let resp = answer_query(&query, vdb, ai).await?;
-                        app.answer = format!("{resp}");
-                        app.status = format!("Done in {:.2?}", started.elapsed());
-                        app.push_log(format!("ask: {}", query));
-                    }
-                }
-                Focus::Remember => {
-                    if app.remember_input.trim().is_empty() {
-                        app.status = "Note is empty".into();
-                    } else {
-                        let note = app.remember_input.trim().to_string();
-                        ingest_note(vdb, &note).await?;
-                        app.status = "Saved note".into();
-                        app.push_log("remember: saved note");
-                        refresh_content(app, vdb).await?;
-                        app.remember_input.clear();
-                    }
-                }
-                Focus::Upload => {
-                    if app.upload_input.trim().is_empty() {
-                        app.status = "Path is empty".into();
-                    } else {
-                        app.status = "Uploading…".into();
-                        let result = ingest_path(vdb, &app.upload_input).await;
-                        match result {
-                            Ok(()) => {
-                                app.status = "Uploaded".into();
-                                app.push_log(format!("uploaded {}", app.upload_input));
-                                refresh_content(app, vdb).await?;
-                                app.upload_input.clear();
-                            }
-                            Err(e) => {
-                                app.status = "Upload failed".into();
-                                app.push_log(format!("upload error: {e}"));
-                            }
-                        }
-                    }
-                }
-                Focus::List => {
-                    refresh_content(app, vdb).await?;
-                    app.status = "Refreshed content".into();
-                }
-                Focus::Help => {}
-            },
+
             _ => {}
         }
     }
     Ok(())
 }
 
-async fn ingest_note(vdb: &Arc<VDB>, note: &str) -> Result<(), Box<dyn Error>> {
+async fn ingest_note(vdb: &Arc<VDB>, note: &str) -> anyhow::Result<()> {
     vdb.process_content(
         "note",
         note,
@@ -253,7 +331,7 @@ async fn ingest_note(vdb: &Arc<VDB>, note: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn ingest_path(vdb: &Arc<VDB>, path_str: &str) -> Result<(), Box<dyn Error>> {
+async fn ingest_path(vdb: &Arc<VDB>, path_str: &str) -> anyhow::Result<()> {
     let cwd = get_current_working_dir()?;
     let path = cwd.join(path_str);
     let metadata = tokio::fs::metadata(&path).await?;
