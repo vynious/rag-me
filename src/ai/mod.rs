@@ -48,7 +48,12 @@ impl AI {
             context_str, query
         );
 
-        let result = self.inference_pool.lock().await.accept(prompt, 400).await?;
+        let result = self
+            .inference_pool
+            .lock()
+            .await
+            .accept(prompt, 400, "<SESSION_ID>")
+            .await?;
         Ok(result)
     }
 }

@@ -1,14 +1,24 @@
 use candle_core::Device;
-use std::{fmt, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::{
     sync::{mpsc, oneshot},
     task::spawn_blocking,
+    time::Instant,
 };
 
 use crate::ai::inference::{InferenceEngine, TextGeneration};
 
-struct InferenceJob {
+const MAX_SESSION: usize = 10;
+const SESSION_TTL: Duration = Duration::from_secs(30 * 60);
+
+pub struct InferenceJob {
     prompt: String,
+    session_id: String,
     sample_len: usize,
     reply_tx: oneshot::Sender<InferenceResult>,
 }
@@ -27,8 +37,15 @@ pub struct Worker {
     rx: mpsc::Receiver<InferenceJob>,
 }
 
+struct Sticky {
+    worker: usize,
+    last_used: Instant,
+}
+
 pub struct WorkerPool {
     workers: Vec<mpsc::Sender<InferenceJob>>,
+    pub session_sticky_map: HashMap<String, Sticky>,
+    session_order: VecDeque<String>, // LRU cache
     next: usize,
 }
 
@@ -91,23 +108,84 @@ impl WorkerPool {
             spawn_blocking(move || worker.run());
             workers.push(tx);
         }
-        Ok(Self { workers, next: 0 })
+        Ok(Self {
+            workers,
+            session_order: VecDeque::new(),
+            session_sticky_map: HashMap::new(),
+            next: 0,
+        })
+    }
+
+    // updating LRU Cache
+    fn hit_session(&mut self, session_id: &str, worker: usize) {
+        let now = Instant::now();
+        if !self.session_sticky_map.contains_key(session_id)
+            && self.session_order.len() >= MAX_SESSION
+        {
+            if let Some(old) = self.session_order.pop_front() {
+                self.session_sticky_map.remove(&old);
+            }
+        }
+
+        self.session_sticky_map.insert(
+            session_id.to_string(),
+            Sticky {
+                worker,
+                last_used: now,
+            },
+        );
+        self.session_order.retain(|s| s != session_id);
+        self.session_order.push_back(session_id.to_string());
+    }
+
+    // prune stale
+    fn prune_stale(&mut self) {
+        let now = Instant::now();
+        loop {
+            let Some(key) = self.session_order.pop_front() else {
+                break;
+            };
+            match self.session_sticky_map.get(&key) {
+                Some(sticky) if now.duration_since(sticky.last_used) > SESSION_TTL => {
+                    self.session_sticky_map.remove(&key);
+                    continue;
+                }
+                Some(_) => {
+                    self.session_order.push_back(key);
+                    break;
+                }
+                None => {
+                    continue;
+                }
+            }
+        }
     }
 
     pub async fn accept(
         &mut self,
         prompt: String,
         sample_len: usize,
+        session_id: &str,
     ) -> anyhow::Result<InferenceResult> {
         let (reply_tx, reply_rx) = oneshot::channel();
         let job = InferenceJob {
+            session_id: session_id.to_string(),
             prompt,
             sample_len,
             reply_tx,
         };
-        let idx = self.next % self.workers.len();
-        self.next = self.next.wrapping_add(1);
-        self.workers[idx].send(job).await?;
+
+        let worker_id = match self.session_sticky_map.get(session_id) {
+            // enable sticky session for workers
+            Some(sticky) => sticky.worker,
+            None => {
+                // load balance
+                let idx = self.next % self.workers.len();
+                self.next = self.next.wrapping_add(1);
+                idx
+            }
+        };
+        self.workers[worker_id].send(job).await?;
         let result = reply_rx.await?;
         Ok(result)
     }
