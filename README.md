@@ -23,6 +23,8 @@ Local-first retrieval-augmented generation (RAG) in a TUI/CLI shell. Embedding, 
 - [hf-hub](https://github.com/huggingface/hf-hub) for model artifact fetching.
 - [pdf-extract](https://crates.io/crates/pdf-extract) for PDF ingestion.
 
+![TUI screenshot](docs/UI.png)
+
 ## Project structure
 ```
 Cargo.toml
